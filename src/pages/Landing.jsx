@@ -58,7 +58,7 @@ export default function Landing() {
                         <FeatureCard
                             icon={<Zap size={32} color="hsl(var(--primary))" />}
                             title="Instant Sync"
-                            desc="Low-latency playback synchronization ensures everyone hears the beat at the exact same moment."
+                            desc="Playback synchronization ensures everyone hears the song at the exact same moment."
                         />
                         <FeatureCard
                             icon={<Users size={32} color="#00d4ff" />}
@@ -68,7 +68,7 @@ export default function Landing() {
                         <FeatureCard
                             icon={<Shield size={32} color="#00ff9d" />}
                             title="Private & Secure"
-                            desc="Password-protect your rooms to keep your sessions exclusive. You are in full control."
+                            desc="Password-protect your rooms to keep your sessions exclusive. All data is encrypted and secured by Supabase"
                         />
                     </div>
                 </div>
