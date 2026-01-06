@@ -1056,7 +1056,7 @@ export default function Room() {
                                             const rawEmail = p.userEmail.replace(' (You)', '')
 
                                             // Improved Badge Logic
-                                            const isThisUserHost = rawEmail === hostEmail || (isHost && rawEmail === user.email)
+                                            const isThisUserHost = p.peerId === room?.host_id || (p.peerId === 'me' && isHost)
                                             const isRemote = remoteUsers.has(rawEmail) || isThisUserHost
 
                                             return (
