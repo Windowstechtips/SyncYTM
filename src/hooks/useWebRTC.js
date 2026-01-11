@@ -151,7 +151,14 @@ export const useWebRTC = (roomId, user, onMessage, onPeerConnect) => {
         flushSignalBuffer(targetUserId, peer)
 
         peer.on('signal', signal => {
-            console.log(`SYNC: Sending ${signal.type || 'candidate'} to ${targetEmail}`)
+            // Log signals for debugging
+            if (signal.type) {
+                console.log(`SYNC: Sending ${signal.type} to ${targetEmail}`)
+            } else if (signal.candidate) {
+                const type = signal.candidate.candidate.split(' ')[7]
+                console.log(`SYNC: Sending ${type} candidate to ${targetEmail}`)
+            }
+
             channelRef.current.send({
                 type: 'broadcast',
                 event: 'signal',
@@ -164,19 +171,14 @@ export const useWebRTC = (roomId, user, onMessage, onPeerConnect) => {
             })
         })
 
-        // ICE/Signaling Debugging
-        peer._pc.oniceconnectionstatechange = () => {
-            console.log(`ICE: ${targetEmail} connection state: ${peer._pc.iceConnectionState}`)
-        }
-        peer._pc.onsignalingstatechange = () => {
-            console.log(`ICE: ${targetEmail} signaling state: ${peer._pc.signalingState}`)
-        }
-
-        peer._pc.onicecandidate = (event) => {
-            if (event.candidate) {
-                const type = event.candidate.candidate.split(' ')[7]
-                console.log(`ICE: ${targetEmail} found ${type} candidate`)
-            }
+        // ICE/Signaling Debugging (Non-destructive)
+        if (peer._pc) {
+            peer._pc.addEventListener('iceconnectionstatechange', () => {
+                console.log(`ICE: ${targetEmail} connection state: ${peer._pc.iceConnectionState}`)
+            })
+            peer._pc.addEventListener('signalingstatechange', () => {
+                console.log(`ICE: ${targetEmail} signaling state: ${peer._pc.signalingState}`)
+            })
         }
 
         peer.on('data', data => {
