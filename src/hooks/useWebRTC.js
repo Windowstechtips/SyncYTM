@@ -147,7 +147,11 @@ export const useWebRTC = (roomId, user, onMessage, onPeerConnect) => {
         peersRef.current.push(peerObj)
         setPeers(prev => [...prev, peerObj])
 
+        // Flush any signals received while peer was being created
+        flushSignalBuffer(targetUserId, peer)
+
         peer.on('signal', signal => {
+            console.log(`SYNC: Sending ${signal.type || 'candidate'} to ${targetEmail}`)
             channelRef.current.send({
                 type: 'broadcast',
                 event: 'signal',
@@ -159,6 +163,21 @@ export const useWebRTC = (roomId, user, onMessage, onPeerConnect) => {
                 }
             })
         })
+
+        // ICE/Signaling Debugging
+        peer._pc.oniceconnectionstatechange = () => {
+            console.log(`ICE: ${targetEmail} connection state: ${peer._pc.iceConnectionState}`)
+        }
+        peer._pc.onsignalingstatechange = () => {
+            console.log(`ICE: ${targetEmail} signaling state: ${peer._pc.signalingState}`)
+        }
+
+        peer._pc.onicecandidate = (event) => {
+            if (event.candidate) {
+                const type = event.candidate.candidate.split(' ')[7]
+                console.log(`ICE: ${targetEmail} found ${type} candidate`)
+            }
+        }
 
         peer.on('data', data => {
             try {
@@ -210,6 +229,9 @@ export const useWebRTC = (roomId, user, onMessage, onPeerConnect) => {
         })
     }
 
+    // Map of buffered signals for peers not yet ready
+    const signalBuffer = useRef(new Map())
+
     const handleSignal = (payload) => {
         const { target, sender, senderEmail, signal } = payload
         if (target !== user.id) return // Not for us
@@ -217,8 +239,10 @@ export const useWebRTC = (roomId, user, onMessage, onPeerConnect) => {
         const existingPeer = peersRef.current.find(p => p.peerId === sender)
 
         if (existingPeer) {
+            // If Peer exists but is not yet initialized? 
+            // SimplePeer is synchronous creation, so it should be ready.
+
             // Defensive Signaling: Ignore SDP signals (offer/answer) if already stable or connected
-            // This prevents "InvalidStateError: stable" crashes
             if (existingPeer.peer.connected && (signal.type === 'offer' || signal.type === 'answer')) {
                 console.log(`SYNC: Ignored redundant ${signal.type} from ${senderEmail} (Already connected)`)
                 return
@@ -231,21 +255,30 @@ export const useWebRTC = (roomId, user, onMessage, onPeerConnect) => {
                 console.error(`SYNC: Signal error from ${senderEmail}:`, err)
             }
         } else {
-            console.log(`Received signal from ${sender} (${senderEmail}). Creating responder peer.`)
-            // Force create responder peer
-            createPeer(sender, senderEmail, false)
+            console.log(`SYNC: Buffering signal from ${senderEmail} (Peer not created yet)`)
+            const buffer = signalBuffer.current.get(sender) || []
+            buffer.push(signal)
+            signalBuffer.current.set(sender, buffer)
 
-            // Peer is now in peersRef immediately
-            const newPeerObj = peersRef.current.find(p => p.peerId === sender)
-            if (newPeerObj) {
+            // Re-trigger reconcile to ensure we are trying to connect
+            const state = channelRef.current.presenceState()
+            reconcilePeers(state)
+        }
+    }
+
+    // Call this inside reconcilePeers or createPeer once peer is ready
+    const flushSignalBuffer = (peerId, peerInstance) => {
+        const buffer = signalBuffer.current.get(peerId)
+        if (buffer && buffer.length > 0) {
+            console.log(`SYNC: Flushing ${buffer.length} buffered signals for ${peerId}`)
+            buffer.forEach(sig => {
                 try {
-                    newPeerObj.peer.signal(signal)
-                } catch (err) {
-                    console.error(`SYNC: Initial signal error from ${senderEmail}:`, err)
+                    peerInstance.signal(sig)
+                } catch (e) {
+                    console.error('Error flushing signal:', e)
                 }
-            } else {
-                console.warn('Could not find newly created peer to signal')
-            }
+            })
+            signalBuffer.current.delete(peerId)
         }
     }
 
