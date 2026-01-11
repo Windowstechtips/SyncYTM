@@ -255,14 +255,15 @@ export const useWebRTC = (roomId, user, onMessage, onPeerConnect) => {
                 console.error(`SYNC: Signal error from ${senderEmail}:`, err)
             }
         } else {
-            console.log(`SYNC: Buffering signal from ${senderEmail} (Peer not created yet)`)
+            console.log(`SYNC: Received signal from ${senderEmail} before peer created. Starting responder.`)
+            // 1. Buffer the signal
             const buffer = signalBuffer.current.get(sender) || []
             buffer.push(signal)
             signalBuffer.current.set(sender, buffer)
 
-            // Re-trigger reconcile to ensure we are trying to connect
-            const state = channelRef.current.presenceState()
-            reconcilePeers(state)
+            // 2. Force create responder peer
+            // createPeer will call flushSignalBuffer and process the buffered signals
+            createPeer(sender, senderEmail, false)
         }
     }
 
