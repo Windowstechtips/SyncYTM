@@ -101,13 +101,19 @@ export const useWebRTC = (roomId, user, onMessage, onPeerConnect) => {
         })
     }
 
-    // Track pending reconnect intervals
-    const pendingReconnects = useRef(new Set())
+    // Track pending reconnect intervals per user ID
+    const pendingReconnects = useRef(new Map())
 
     const createPeer = (targetUserId, targetEmail, initiator) => {
         if (peersRef.current.find(p => p.peerId === targetUserId)) {
             console.warn('Peer already exists for', targetEmail)
             return
+        }
+
+        // Clear any pending reconnects for this user since we are creating a new peer
+        if (pendingReconnects.current.has(targetUserId)) {
+            clearTimeout(pendingReconnects.current.get(targetUserId))
+            pendingReconnects.current.delete(targetUserId)
         }
 
         console.log('Creating Peer for', targetEmail, 'Initiator:', initiator)
@@ -171,14 +177,14 @@ export const useWebRTC = (roomId, user, onMessage, onPeerConnect) => {
 
             // Auto-Reconnect Logic
             const isUserOnline = Object.keys(presenceRef.current).includes(targetUserId)
-            if (isUserOnline && initiator) {
+            if (isUserOnline && initiator && !pendingReconnects.current.has(targetUserId)) {
                 console.log(`User ${targetEmail} is still online. Attempting reconnect in 3s...`)
                 const timeoutId = setTimeout(() => {
-                    pendingReconnects.current.delete(timeoutId)
+                    pendingReconnects.current.delete(targetUserId)
                     console.log(`Reconnecting to ${targetEmail}...`)
                     createPeer(targetUserId, targetEmail, true)
                 }, 3000)
-                pendingReconnects.current.add(timeoutId)
+                pendingReconnects.current.set(targetUserId, timeoutId)
             }
         }
 
@@ -200,16 +206,32 @@ export const useWebRTC = (roomId, user, onMessage, onPeerConnect) => {
         const existingPeer = peersRef.current.find(p => p.peerId === sender)
 
         if (existingPeer) {
-            existingPeer.peer.signal(signal)
+            // Defensive Signaling: Ignore SDP signals (offer/answer) if already stable or connected
+            // This prevents "InvalidStateError: stable" crashes
+            if (existingPeer.peer.connected && (signal.type === 'offer' || signal.type === 'answer')) {
+                console.log(`SYNC: Ignored redundant ${signal.type} from ${senderEmail} (Already connected)`)
+                return
+            }
+
+            try {
+                console.log(`SYNC: Signaling ${senderEmail} (${signal.type || 'candidate'})`)
+                existingPeer.peer.signal(signal)
+            } catch (err) {
+                console.error(`SYNC: Signal error from ${senderEmail}:`, err)
+            }
         } else {
             console.log(`Received signal from ${sender} (${senderEmail}). Creating responder peer.`)
             // Force create responder peer
             createPeer(sender, senderEmail, false)
 
-            // Peer is now in peersRef immediately due to update above
+            // Peer is now in peersRef immediately
             const newPeerObj = peersRef.current.find(p => p.peerId === sender)
             if (newPeerObj) {
-                newPeerObj.peer.signal(signal)
+                try {
+                    newPeerObj.peer.signal(signal)
+                } catch (err) {
+                    console.error(`SYNC: Initial signal error from ${senderEmail}:`, err)
+                }
             } else {
                 console.warn('Could not find newly created peer to signal')
             }
@@ -219,7 +241,12 @@ export const useWebRTC = (roomId, user, onMessage, onPeerConnect) => {
     const removePeer = (id) => {
         const peerObj = peersRef.current.find(p => p.peerId === id)
         if (peerObj) {
-            peerObj.peer.destroy()
+            console.log('SYNC: Destroying peer:', peerObj.userEmail)
+            try {
+                peerObj.peer.destroy()
+            } catch (e) {
+                console.error('Error during peer destruction:', e)
+            }
         }
         peersRef.current = peersRef.current.filter(p => p.peerId !== id)
         setPeers(prev => prev.filter(p => p.peerId !== id))
