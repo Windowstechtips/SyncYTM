@@ -33,14 +33,14 @@ const Player = ({ url, isPlaying, onProgress, onDuration, onBuffer, onEnded, onR
                             showinfo: 1,
                             autoplay: 1,
                             controls: 1,
-                            origin: window.location.origin,
-                            widget_referrer: window.location.origin,
+                            origin: window.location.protocol + '//' + window.location.host,
+                            widget_referrer: window.location.protocol + '//' + window.location.host,
                             enablejsapi: 1,
                             rel: 0,
                             modestbranding: 1,
                         },
                         attributes: {
-                            referrerPolicy: 'strict-origin-when-cross-origin'
+                            referrerPolicy: 'no-referrer-when-downgrade'
                         }
                     }
                 }}

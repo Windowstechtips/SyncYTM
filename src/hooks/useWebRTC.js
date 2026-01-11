@@ -114,7 +114,7 @@ export const useWebRTC = (roomId, user, onMessage, onPeerConnect) => {
 
         const peer = new SimplePeer({
             initiator,
-            trickle: false,
+            trickle: true,
             config: {
                 iceServers: [
                     { urls: 'stun:stun.l.google.com:19302' },
