@@ -261,13 +261,13 @@ export default function Room() {
         }
     }, []) // Empty dependency array = STABLE FUNCTION
 
-    const onPeerConnect = React.useCallback((peerId, email) => {
+    const onPeerConnect = React.useCallback((peerId, email, sendToPeerFunc) => {
         console.log('New peer connected:', email)
 
         // Only Host (or Remote) should send state to hydrate the new peer.
         // Guests should NEVER send state on connect.
         if (isHostRef.current) {
-            console.log('Sending Host State to:', email)
+            console.log('SYNC: I am Host. Sending playback state to:', email)
             // Send Playback State (Unicast)
             if (stateRef.current.currentVideo || stateRef.current.queue.length > 0) {
                 const currentState = {
@@ -277,10 +277,16 @@ export default function Room() {
                         time: playerRef.current ? playerRef.current.getCurrentTime() : 0
                     }
                 }
-                sendToPeerRef.current(peerId, currentState)
+                sendToPeerFunc(peerId, currentState)
             }
             // Send Remote Permissions List (Host only)
-            sendToPeerRef.current(peerId, { type: 'sync-remotes', remotes: Array.from(remoteUsersRef.current) })
+            sendToPeerFunc(peerId, { type: 'sync-remotes', remotes: Array.from(remoteUsersRef.current) })
+        } else {
+            // If I am a Guest and have no video, request sync from the new peer
+            if (!stateRef.current.currentVideo) {
+                console.log('SYNC: I am Guest (idle). Requesting sync from:', email)
+                sendToPeerFunc(peerId, { type: 'request-sync' })
+            }
         }
     }, [])
 

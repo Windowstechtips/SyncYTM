@@ -126,6 +126,10 @@ export const useWebRTC = (roomId, user, onMessage, onPeerConnect) => {
             }
         })
 
+        const peerObj = { peerId: targetUserId, peer, userEmail: targetEmail }
+        peersRef.current.push(peerObj)
+        setPeers(prev => [...prev, peerObj])
+
         peer.on('signal', signal => {
             channelRef.current.send({
                 type: 'broadcast',
@@ -156,7 +160,8 @@ export const useWebRTC = (roomId, user, onMessage, onPeerConnect) => {
             console.log('Connected to peer:', targetEmail)
             forceUpdate({}) // Ensure UI shows Green
             if (onPeerConnectRef.current) {
-                onPeerConnectRef.current(targetUserId, targetEmail)
+                // Pass sendToPeer to the callback to avoid closure issues
+                onPeerConnectRef.current(targetUserId, targetEmail, sendToPeer)
             }
         })
 
@@ -165,8 +170,6 @@ export const useWebRTC = (roomId, user, onMessage, onPeerConnect) => {
             removePeer(targetUserId)
 
             // Auto-Reconnect Logic
-            // If the user is present in the room state, and WE are the initiator, try again.
-            // This handles network blips or temporary socket drops.
             const isUserOnline = Object.keys(presenceRef.current).includes(targetUserId)
             if (isUserOnline && initiator) {
                 console.log(`User ${targetEmail} is still online. Attempting reconnect in 3s...`)
@@ -188,10 +191,6 @@ export const useWebRTC = (roomId, user, onMessage, onPeerConnect) => {
             console.error('Peer error:', targetEmail, err)
             handleDisconnect()
         })
-
-        const peerObj = { peerId: targetUserId, peer, userEmail: targetEmail }
-        peersRef.current.push(peerObj)
-        setPeers(prev => [...prev, peerObj])
     }
 
     const handleSignal = (payload) => {
@@ -207,15 +206,13 @@ export const useWebRTC = (roomId, user, onMessage, onPeerConnect) => {
             // Force create responder peer
             createPeer(sender, senderEmail, false)
 
-            // Small delay to ensure peer instance is ready before signaling
-            setTimeout(() => {
-                const newPeerObj = peersRef.current.find(p => p.peerId === sender)
-                if (newPeerObj) {
-                    newPeerObj.peer.signal(signal)
-                } else {
-                    console.warn('Could not find newly created peer to signal')
-                }
-            }, 50)
+            // Peer is now in peersRef immediately due to update above
+            const newPeerObj = peersRef.current.find(p => p.peerId === sender)
+            if (newPeerObj) {
+                newPeerObj.peer.signal(signal)
+            } else {
+                console.warn('Could not find newly created peer to signal')
+            }
         }
     }
 
