@@ -1,15 +1,82 @@
-import React from 'react'
+import React, { useState, useRef } from 'react'
 import { Disc, SkipBack, SkipForward, Play, Pause, Maximize2 } from 'lucide-react'
 
 export default function MusicModeUI({
     currentVideo,
     isPlaying,
+    progress = 0,
+    duration = 0,
     onPlayPause,
     onNext,
     onPrev,
+    onSeek,
     onExit,
     className
 }) {
+    const [isSeeking, setIsSeeking] = useState(false)
+    const [seekPosition, setSeekPosition] = useState(0)
+    const progressBarRef = useRef(null)
+
+    const formatTime = (seconds) => {
+        if (!seconds || isNaN(seconds)) return '0:00'
+        const mins = Math.floor(seconds / 60)
+        const secs = Math.floor(seconds % 60)
+        return `${mins}:${secs.toString().padStart(2, '0')}`
+    }
+
+    const handleProgressClick = (e) => {
+        if (!duration || !onSeek) return
+
+        const rect = progressBarRef.current.getBoundingClientRect()
+        const clickX = e.clientX - rect.left
+        const percentage = clickX / rect.width
+        const newTime = percentage * duration
+
+        onSeek(newTime)
+    }
+
+    const handleProgressMouseDown = (e) => {
+        setIsSeeking(true)
+        handleProgressMove(e)
+    }
+
+    const handleProgressMove = (e) => {
+        if (!duration) return
+
+        const rect = progressBarRef.current.getBoundingClientRect()
+        const clickX = Math.max(0, Math.min(e.clientX - rect.left, rect.width))
+        const percentage = clickX / rect.width
+        const newTime = percentage * duration
+
+        if (isSeeking) {
+            setSeekPosition(newTime)
+        }
+    }
+
+    const handleProgressMouseUp = (e) => {
+        if (isSeeking && onSeek) {
+            handleProgressMove(e)
+            const rect = progressBarRef.current.getBoundingClientRect()
+            const clickX = Math.max(0, Math.min(e.clientX - rect.left, rect.width))
+            const percentage = clickX / rect.width
+            const newTime = percentage * duration
+
+            onSeek(newTime)
+        }
+        setIsSeeking(false)
+    }
+
+    React.useEffect(() => {
+        if (isSeeking) {
+            const handleMouseUp = () => setIsSeeking(false)
+            window.addEventListener('mouseup', handleMouseUp)
+            return () => window.removeEventListener('mouseup', handleMouseUp)
+        }
+    }, [isSeeking])
+
+    const currentProgress = isSeeking ? seekPosition : progress
+    const progressPercentage = duration > 0 ? (currentProgress / duration) * 100 : 0
+
     return (
         <div
             className={`glass-card ${className || ''}`}
@@ -40,7 +107,7 @@ export default function MusicModeUI({
                     position: 'relative'
                 }}>
                     {currentVideo ? (
-                        <img src={currentVideo.thumbnail} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <img src={currentVideo.thumbnail} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt={currentVideo.title} />
                     ) : (
                         <Disc size={64} style={{ opacity: 0.2 }} />
                     )}
@@ -55,6 +122,64 @@ export default function MusicModeUI({
                         {currentVideo ? currentVideo.channel : 'Add songs to queue'}
                     </p>
                 </div>
+
+                {/* Progress Bar */}
+                {currentVideo && (
+                    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <div
+                            ref={progressBarRef}
+                            onClick={handleProgressClick}
+                            onMouseDown={handleProgressMouseDown}
+                            onMouseMove={isSeeking ? handleProgressMove : undefined}
+                            onMouseUp={handleProgressMouseUp}
+                            style={{
+                                width: '100%',
+                                height: '6px',
+                                background: 'hsla(var(--surface)/0.5)',
+                                borderRadius: '3px',
+                                cursor: 'pointer',
+                                position: 'relative',
+                                overflow: 'visible'
+                            }}
+                        >
+                            {/* Progress Fill */}
+                            <div
+                                style={{
+                                    position: 'absolute',
+                                    left: 0,
+                                    top: 0,
+                                    height: '100%',
+                                    width: `${progressPercentage}%`,
+                                    background: 'hsl(var(--primary))',
+                                    borderRadius: '3px',
+                                    transition: isSeeking ? 'none' : 'width 0.1s linear'
+                                }}
+                            />
+                            {/* Seek Handle */}
+                            <div
+                                style={{
+                                    position: 'absolute',
+                                    left: `${progressPercentage}%`,
+                                    top: '50%',
+                                    transform: 'translate(-50%, -50%)',
+                                    width: isSeeking ? '16px' : '12px',
+                                    height: isSeeking ? '16px' : '12px',
+                                    background: 'white',
+                                    borderRadius: '50%',
+                                    boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                                    transition: isSeeking ? 'none' : 'all 0.1s ease',
+                                    cursor: 'grab'
+                                }}
+                            />
+                        </div>
+
+                        {/* Time Display */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', opacity: 0.7 }}>
+                            <span>{formatTime(currentProgress)}</span>
+                            <span>{formatTime(duration)}</span>
+                        </div>
+                    </div>
+                )}
 
                 {/* Controls */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1.5rem', marginTop: '1rem' }}>

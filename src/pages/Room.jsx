@@ -25,10 +25,16 @@ export default function Room() {
     const [isPlaying, setIsPlaying] = useState(false)
     const [queue, setQueue] = useState([]) // Array of video objects (Persistent Playlist)
     const [currentVideo, setCurrentVideo] = useState(null)
+    const [progress, setProgress] = useState(0) // Current playback time in seconds
+    const [duration, setDuration] = useState(0) // Total video duration in seconds
 
     // UI State
     const [showSearch, setShowSearch] = useState(false)
-    const [isMusicMode, setIsMusicMode] = useState(false)
+    const [isMusicMode, setIsMusicMode] = useState(() => {
+        // Load music mode state from localStorage
+        const saved = localStorage.getItem('syncytm_music_mode')
+        return saved === 'true'
+    })
     const [messages, setMessages] = useState([])
     const [newMessage, setNewMessage] = useState('')
     const [showDebug, setShowDebug] = useState(false)
@@ -576,6 +582,9 @@ export default function Room() {
         const currentTime = state.playedSeconds
         const lastTime = lastProgressTimeRef.current
 
+        // Update progress state for Music UI
+        setProgress(currentTime)
+
         // Detect if there was a significant time jump (> 2 seconds difference)
         // This indicates a seek operation (user dragged the seekbar)
         const timeDiff = Math.abs(currentTime - lastTime)
@@ -589,6 +598,10 @@ export default function Room() {
 
         // Update last known time
         lastProgressTimeRef.current = currentTime
+    }
+
+    const onDuration = (duration) => {
+        setDuration(duration)
     }
 
     const onBuffer = () => {
@@ -844,7 +857,11 @@ export default function Room() {
                                 <Activity size={20} />
                             </button>
 
-                            <button className={`btn ${isMusicMode ? 'btn-primary' : 'btn-ghost'} btn-mobile-compact mobile-hide-text`} onClick={() => setIsMusicMode(!isMusicMode)}>
+                            <button className={`btn ${isMusicMode ? 'btn-primary' : 'btn-ghost'} btn-mobile-compact mobile-hide-text`} onClick={() => {
+                                const newMode = !isMusicMode
+                                setIsMusicMode(newMode)
+                                localStorage.setItem('syncytm_music_mode', newMode.toString())
+                            }}>
                                 <Music2 size={20} /> <span>Music Mode</span>
                             </button>
                             <button className="btn btn-primary btn-mobile-compact mobile-hide-text" onClick={() => setShowSearch(true)}>
@@ -867,6 +884,7 @@ export default function Room() {
                                     isPlaying={isPlaying}
                                     playerRef={playerRef}
                                     onProgress={onProgress}
+                                    onDuration={onDuration}
                                     onPlay={onPlay}
                                     onPause={onPause}
                                     onBuffer={onBuffer}
@@ -894,10 +912,16 @@ export default function Room() {
                                 <MusicModeUI
                                     currentVideo={currentVideo}
                                     isPlaying={isPlaying}
+                                    progress={progress}
+                                    duration={duration}
                                     onPlayPause={handleTogglePlay}
                                     onNext={handleNext}
                                     onPrev={handlePrev}
-                                    onExit={() => setIsMusicMode(false)}
+                                    onSeek={onSeek}
+                                    onExit={() => {
+                                        setIsMusicMode(false)
+                                        localStorage.setItem('syncytm_music_mode', 'false')
+                                    }}
                                 />
                             </div>
                         )}
