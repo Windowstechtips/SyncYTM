@@ -27,7 +27,10 @@ create table rooms (
   is_private boolean default false,
   password_hash text, -- simple storage for now, ideally clearer handling
   queue jsonb default '[]'::jsonb, -- persistent queue storage
-  current_state jsonb default '{}'::jsonb -- store current playing song, time, etc if needed for persistent state
+  current_video jsonb, -- Stores the full video object (id, title, channel, thumbnail)
+  is_playing boolean default false, -- Syncs the play/pause state
+  progress float default 0, -- Syncs the seek position (in seconds)
+  last_updated_at timestamptz default now() -- Timestamp of the last state change
 );
 
 alter table rooms enable row level security;

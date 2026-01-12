@@ -7,7 +7,7 @@ import SearchOverlay from '../components/SearchOverlay'
 import MusicModeUI from '../components/MusicModeUI'
 import { getPlaylistItems } from '../services/youtube'
 
-import { useWebRTC } from '../hooks/useWebRTC'
+import { useRealtimeSync } from '../hooks/useRealtimeSync'
 import { MessageCircle, Users, Send, Search as SearchIcon, ListMusic, Music2, Wifi, WifiOff, Activity, Play, Plus, Check, X, Shield, ShieldAlert, Home, Music, RefreshCw } from 'lucide-react'
 
 export default function Room() {
@@ -75,7 +75,7 @@ export default function Room() {
         isHostRef.current = isHost // Derived from user/room
     }, [url, isPlaying, queue, currentVideo, remoteUsers, isHost])
 
-    // Callback for incoming WebRTC data
+    // Callback for incoming WebRTC/Realtime data
     const onData = React.useCallback((data, senderEmail) => {
         console.log('RX from', senderEmail, ':', data.type)
 
@@ -246,20 +246,34 @@ export default function Room() {
             console.log('RX: Request Sync')
             if (isHostRef.current) {
                 console.log('Sending Sync State payload...')
+                const currentTime = playerRef.current ? playerRef.current.getCurrentTime() : 0
                 const currentState = {
                     type: 'sync-state',
                     state: {
                         ...stateRef.current,
-                        time: playerRef.current ? playerRef.current.getCurrentTime() : 0
+                        time: currentTime
                     }
                 }
                 // Broadcast to ensure everyone is aligned? Or just unicast?
                 // Broadcast is safer for general "resync" button
                 broadcastDataRef.current(currentState)
                 broadcastDataRef.current({ type: 'sync-remotes', remotes: Array.from(remoteUsersRef.current) })
+
+                // Force DB Update on manual sync request (Self-Repair)
+                // Use a fire-and-forget approach
+                const videoData = stateRef.current.currentVideo ? stateRef.current.currentVideo : null
+                if (videoData) {
+                    supabase.from('rooms').update({
+                        current_video: videoData,
+                        is_playing: stateRef.current.isPlaying,
+                        progress: currentTime,
+                        last_updated_at: new Date()
+                    }).eq('id', id).then(() => console.log('DB State Repaired'))
+                }
             }
         }
-    }, []) // Empty dependency array = STABLE FUNCTION
+    }, [id]) // Re-bind if ID changes (rare)
+
 
     const onPeerConnect = React.useCallback((peerId, email, sendToPeerFunc) => {
         console.log('New peer connected:', email)
@@ -294,7 +308,7 @@ export default function Room() {
     const broadcastDataRef = useRef(() => { })
     const sendToPeerRef = useRef(() => { })
 
-    const { peers, broadcastData, sendToPeer } = useWebRTC(isAuthorized ? id : null, user, onData, onPeerConnect)
+    const { peers, broadcastData, sendToPeer } = useRealtimeSync(isAuthorized ? id : null, user, onData, onPeerConnect)
 
     useEffect(() => {
         broadcastDataRef.current = broadcastData
@@ -315,6 +329,30 @@ export default function Room() {
             if (Array.isArray(data.queue)) {
                 setQueue(data.queue)
             }
+
+            // Hydrate Playback State
+            if (data.current_video) {
+                setCurrentVideo(data.current_video)
+                setUrl(`https://www.youtube.com/watch?v=${data.current_video.id}`)
+                setIsPlaying(data.is_playing)
+
+                // Calculate drift if playing
+                if (data.is_playing && data.last_updated_at) {
+                    const lastUpdate = new Date(data.last_updated_at).getTime()
+                    const now = Date.now()
+                    const elapsed = (now - lastUpdate) / 1000
+                    const estimatedTime = (data.progress || 0) + elapsed
+                    // Seek to estimated time
+                    setTimeout(() => {
+                        if (playerRef.current) playerRef.current.seekTo(estimatedTime)
+                    }, 1000)
+                } else if (data.progress > 0) {
+                    setTimeout(() => {
+                        if (playerRef.current) playerRef.current.seekTo(data.progress)
+                    }, 1000)
+                }
+            }
+
             if (!data.is_private || data.host_id === user.id) {
                 setIsAuthorized(true)
             }
@@ -366,6 +404,16 @@ export default function Room() {
         setIsPlaying(true)
         if (broadcast) {
             broadcastData({ type: 'play-video', video })
+        }
+
+        // PERSISTENCE (Host Only)
+        if (isHost) {
+            supabase.from('rooms').update({
+                current_video: video,
+                is_playing: true,
+                progress: 0,
+                last_updated_at: new Date()
+            }).eq('id', id).then()
         }
     }
 
@@ -559,7 +607,16 @@ export default function Room() {
         if (isPlaying) return
 
         setIsPlaying(true)
-        broadcastData({ type: 'play', time: playerRef.current?.getCurrentTime() || 0 })
+        const time = playerRef.current?.getCurrentTime() || 0
+        broadcastData({ type: 'play', time })
+
+        if (isHost) {
+            supabase.from('rooms').update({
+                is_playing: true,
+                progress: time,
+                last_updated_at: new Date()
+            }).eq('id', id).then()
+        }
     }
 
     const onPause = () => {
@@ -591,6 +648,15 @@ export default function Room() {
             setIsPlaying(false)
             broadcastData({ type: 'pause' })
             pauseDebounceRef.current = null
+
+            if (isHost) {
+                const time = playerRef.current?.getCurrentTime() || 0
+                supabase.from('rooms').update({
+                    is_playing: false,
+                    progress: time,
+                    last_updated_at: new Date()
+                }).eq('id', id).then()
+            }
         }, 1000) // Increased to 1000ms to catch slow seeks
     }
 
@@ -621,6 +687,13 @@ export default function Room() {
 
         console.log('Broadcasting SEEK:', seconds)
         broadcastData({ type: 'seek', time: seconds })
+
+        if (isHost) {
+            supabase.from('rooms').update({
+                progress: seconds,
+                last_updated_at: new Date()
+            }).eq('id', id).then()
+        }
     }
 
     const onEnded = () => {
