@@ -735,6 +735,7 @@ export default function Room() {
                 .room-layout {
                     display: grid;
                     grid-template-columns: minmax(0, 3fr) 1fr;
+                    grid-template-rows: minmax(0, 1fr); /* Critical Fix: Constraint Row Height */
                     gap: 2rem;
                 }
                 .mobile-only { display: none; }
