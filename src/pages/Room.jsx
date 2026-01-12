@@ -751,6 +751,12 @@ export default function Room() {
         console.log('Broadcasting SEEK:', seconds)
         broadcastData({ type: 'seek', time: seconds })
 
+        // Critical Fix: Perform the seek locally for the sender!
+        if (playerRef.current) {
+            playerRef.current.seekTo(seconds)
+            setProgress(seconds) // Optimistic UI update
+        }
+
         if (isHost) {
             supabase.from('rooms').update({
                 progress: seconds,

@@ -35,44 +35,50 @@ export default function MusicModeUI({
         onSeek(newTime)
     }
 
-    const handleProgressMouseDown = (e) => {
-        setIsSeeking(true)
-        handleProgressMove(e)
-    }
-
-    const handleProgressMove = (e) => {
+    // Refactored Drag Logic using Window Listeners
+    const handleMouseDown = (e) => {
         if (!duration) return
+        e.preventDefault() // Prevent text selection
+        setIsSeeking(true)
 
+        // Calculate initial position immediately
+        updateSeekPosition(e.clientX)
+
+        const onMouseMove = (moveEvent) => {
+            updateSeekPosition(moveEvent.clientX)
+        }
+
+        const onMouseUp = (upEvent) => {
+            // Commit the seek
+            const finalTime = calculateTime(upEvent.clientX)
+            if (onSeek) onSeek(finalTime)
+
+            setIsSeeking(false)
+            setSeekPosition(0) // Reset temp seek position (optional, or keep it)
+
+            window.removeEventListener('mousemove', onMouseMove)
+            window.removeEventListener('mouseup', onMouseUp)
+        }
+
+        window.addEventListener('mousemove', onMouseMove)
+        window.addEventListener('mouseup', onMouseUp)
+    }
+
+    const calculateTime = (clientX) => {
+        if (!progressBarRef.current) return 0
         const rect = progressBarRef.current.getBoundingClientRect()
-        const clickX = Math.max(0, Math.min(e.clientX - rect.left, rect.width))
-        const percentage = clickX / rect.width
-        const newTime = percentage * duration
-
-        if (isSeeking) {
-            setSeekPosition(newTime)
-        }
+        const x = Math.max(0, Math.min(clientX - rect.left, rect.width))
+        const percentage = x / rect.width
+        return percentage * duration
     }
 
-    const handleProgressMouseUp = (e) => {
-        if (isSeeking && onSeek) {
-            handleProgressMove(e)
-            const rect = progressBarRef.current.getBoundingClientRect()
-            const clickX = Math.max(0, Math.min(e.clientX - rect.left, rect.width))
-            const percentage = clickX / rect.width
-            const newTime = percentage * duration
-
-            onSeek(newTime)
-        }
-        setIsSeeking(false)
+    const updateSeekPosition = (clientX) => {
+        const time = calculateTime(clientX)
+        setSeekPosition(time)
     }
 
-    React.useEffect(() => {
-        if (isSeeking) {
-            const handleMouseUp = () => setIsSeeking(false)
-            window.addEventListener('mouseup', handleMouseUp)
-            return () => window.removeEventListener('mouseup', handleMouseUp)
-        }
-    }, [isSeeking])
+    // Remove old useEffect for mouseup since we handle it in handleMouseDown closure
+    // React.useEffect(() => { ... }, [isSeeking])
 
     const currentProgress = isSeeking ? seekPosition : progress
     const progressPercentage = duration > 0 ? (currentProgress / duration) * 100 : 0
@@ -160,9 +166,8 @@ export default function MusicModeUI({
                         <div
                             ref={progressBarRef}
                             onClick={handleProgressClick}
-                            onMouseDown={handleProgressMouseDown}
-                            onMouseMove={isSeeking ? handleProgressMove : undefined}
-                            onMouseUp={handleProgressMouseUp}
+                            onMouseDown={handleMouseDown}
+                            // onMouseMove and onMouseUp handled by window listeners initiated by onMouseDown
                             style={{
                                 width: '100%',
                                 height: '6px',
