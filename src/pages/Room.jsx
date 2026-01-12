@@ -790,8 +790,8 @@ export default function Room() {
                     </div>
                 )}
 
-                {/* Left Column */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', minHeight: 0, height: '100%', overflow: 'hidden' }}>
+                {/* Left Column - Scrollable */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', minHeight: 0, height: '100%', overflowY: 'auto', overflowX: 'hidden', paddingRight: '4px' }}>
                     <header style={{ marginBottom: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ minWidth: 0 }}>
                             <h2 style={{ fontSize: '1.5rem', marginBottom: '0.5rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{room?.name}</h2>
@@ -868,7 +868,7 @@ export default function Room() {
                     </div>
 
                     {/* Queue List with Tabs */}
-                    <div className="glass-card" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: '200px' }}>
+                    <div className="glass-card" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: '500px' }}>
                         {/* Queue Tabs Header */}
                         <div style={{ display: 'flex', borderBottom: '1px solid hsl(var(--border))' }}>
                             <button
