@@ -23,6 +23,10 @@ export default function Home() {
     const [isPrivate, setIsPrivate] = useState(false)
     const [password, setPassword] = useState('')
 
+    // Profile Edit State
+    const [showProfileModal, setShowProfileModal] = useState(false)
+    const [newUsername, setNewUsername] = useState('')
+
     useEffect(() => {
         fetchRooms()
         const channel = supabase
@@ -120,6 +124,24 @@ export default function Home() {
         }
     }
 
+    const updateProfile = async (e) => {
+        e.preventDefault()
+        if (!newUsername.trim()) return
+
+        const { error } = await supabase.auth.updateUser({
+            data: { username: newUsername }
+        })
+
+        if (error) {
+            alert(error.message)
+        } else {
+            setShowProfileModal(false)
+            // Force reload to see changes or rely on AuthContext subscription update?
+            // AuthContext listens to onAuthStateChange, providing the UI updates optimistically or via event.
+            // updateUser triggers USER_UPDATED event usually.
+        }
+    }
+
     const openEditModal = (room) => {
         setEditingRoom(room)
         setFormName(room.name)
@@ -135,7 +157,12 @@ export default function Home() {
                     <Music color="hsl(var(--primary))" /> SyncYTM
                 </h1>
                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                    <span style={{ color: 'hsl(var(--text-muted))' }}>{user.user_metadata?.username || user.email}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ color: 'hsl(var(--text-muted))' }}>{user.user_metadata?.username || user.email}</span>
+                        <button className="btn btn-ghost" style={{ padding: '0.2rem' }} onClick={() => { setNewUsername(user.user_metadata?.username || ''); setShowProfileModal(true) }}>
+                            <Edit2 size={14} />
+                        </button>
+                    </div>
                     <button className="btn btn-ghost" onClick={signOut}>Log Out</button>
                 </div>
             </header>
@@ -257,6 +284,30 @@ export default function Home() {
                     </div>
                 )
             }
+
+            {/* Profile Edit Modal */}
+            {showProfileModal && (
+                <div style={{
+                    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100
+                }}>
+                    <div className="glass-card animate-fade-in" style={{ width: '400px', background: 'hsl(var(--surface))' }}>
+                        <h2 style={{ marginBottom: '1.5rem' }}>Update Profile</h2>
+                        <form onSubmit={updateProfile}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Username</label>
+                                    <input className="input" autoFocus value={newUsername} onChange={e => setNewUsername(e.target.value)} required />
+                                </div>
+                                <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+                                    <button type="button" className="btn btn-ghost" onClick={() => setShowProfileModal(false)} style={{ flex: 1 }}>Cancel</button>
+                                    <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>Save</button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div >
     )
 }
