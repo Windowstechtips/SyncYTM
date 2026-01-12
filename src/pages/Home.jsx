@@ -76,7 +76,7 @@ export default function Home() {
             alert(error.message)
         } else {
             resetForm()
-            navigate(`/ room / ${data[0].id} `)
+            navigate(`/room/${data[0].id}`)
         }
     }
 
@@ -150,7 +150,7 @@ export default function Home() {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem' }}>
                         {myRooms.map(room => (
                             <div key={room.id} className="glass-card" style={{ padding: '1.5rem', transition: 'all 0.2s', position: 'relative' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem', cursor: 'pointer' }} onClick={() => navigate(`/ room / ${room.id} `)}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem', cursor: 'pointer' }} onClick={() => navigate(`/room/${room.id}`)}>
                                     <h3 style={{ fontSize: '1.25rem', fontWeight: '600' }}>{room.name}</h3>
                                     {room.is_private && <Lock size={16} color="hsl(var(--text-muted))" />}
                                 </div>
@@ -166,7 +166,7 @@ export default function Home() {
                                         <button className="btn btn-ghost" style={{ padding: '0.4rem', color: 'hsl(var(--destructive))' }} onClick={(e) => { e.stopPropagation(); confirmDelete(room.id) }} title="Delete">
                                             <Trash2 size={16} />
                                         </button>
-                                        <button className="btn btn-ghost" style={{ padding: '0.4rem 0.8rem', fontSize: '0.9rem' }} onClick={() => navigate(`/ room / ${room.id} `)}>
+                                        <button className="btn btn-ghost" style={{ padding: '0.4rem 0.8rem', fontSize: '0.9rem' }} onClick={() => navigate(`/room/${room.id}`)}>
                                             Enter <Play size={14} style={{ marginLeft: '4px' }} />
                                         </button>
                                     </div>
@@ -182,7 +182,7 @@ export default function Home() {
                 <h2 style={{ fontSize: '1.5rem', marginBottom: '1.5rem' }}>Active Public Rooms</h2>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem' }}>
                     {activeRooms.filter(r => r.host_id !== user.id).map(room => (
-                        <div key={room.id} className="glass-card" style={{ padding: '1.5rem', transition: 'all 0.2s', cursor: 'pointer' }} onClick={() => navigate(`/ room / ${room.id} `)}>
+                        <div key={room.id} className="glass-card" style={{ padding: '1.5rem', transition: 'all 0.2s', cursor: 'pointer' }} onClick={() => navigate(`/room/${room.id}`)}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
                                 <h3 style={{ fontSize: '1.25rem', fontWeight: '600' }}>{room.name}</h3>
                                 {room.is_private && <Lock size={16} color="hsl(var(--text-muted))" />}
