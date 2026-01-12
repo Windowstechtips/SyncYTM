@@ -798,15 +798,15 @@ export default function Room() {
             /* Removed overflowY: hidden to allow global scroll */
         }}>
             <div className="container room-layout" style={{
-                padding: '2rem 1rem',
+                padding: '1rem', // Reduced padding
                 flex: 1, // Push footer down
-                /* Removed height: 100% */
+                maxWidth: '100%', // Allow full width
                 boxSizing: 'border-box'
             }}>
                 <style>{`
                 .room-layout {
                     display: grid;
-                    grid-template-columns: 1fr 350px;
+                    grid-template-columns: 1fr 320px; /* Reduced sidebar slightly */
                     /* Removed grid-template-rows constraints */
                     align-items: start; /* Align items to top */
                     gap: 2rem;
