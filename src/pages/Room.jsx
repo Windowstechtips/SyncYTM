@@ -720,15 +720,15 @@ export default function Room() {
 
     return (
         <div style={{
-            minHeight: '100vh',
+            height: '100vh',
             width: '100%',
             background: 'radial-gradient(circle at top right, hsl(var(--primary) / 0.2), transparent 40%)',
             overflowX: 'hidden',
-            overflowY: 'auto' // Allow scrolling on desktop to view full playlist
+            overflowY: 'hidden'
         }}>
             <div className="container room-layout" style={{
                 padding: '2rem 1rem',
-                minHeight: '100vh', // Allow content to expand beyond viewport
+                height: '100%',
                 boxSizing: 'border-box'
             }}>
                 <style>{`
@@ -779,7 +779,7 @@ export default function Room() {
                 )}
 
                 {/* Left Column */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', minHeight: 0, overflow: 'hidden' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', minHeight: 0, height: '100%', overflow: 'hidden' }}>
                     <header style={{ marginBottom: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ minWidth: 0 }}>
                             <h2 style={{ fontSize: '1.5rem', marginBottom: '0.5rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{room?.name}</h2>
