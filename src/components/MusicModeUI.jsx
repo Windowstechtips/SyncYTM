@@ -114,11 +114,42 @@ export default function MusicModeUI({
                 </div>
 
                 {/* Metadata */}
-                <div style={{ textAlign: 'center', width: '100%' }}>
-                    <h2 style={{ fontSize: '1.5rem', marginBottom: '0.25rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 'bold' }}>
-                        {currentVideo ? currentVideo.title : 'No Video Playing'}
-                    </h2>
-                    <p className="text-muted" style={{ fontSize: '1rem' }}>
+                <div style={{ textAlign: 'center', width: '100%', overflow: 'hidden' }}>
+                    <style>{`
+                        @keyframes marquee {
+                            0% { transform: translateX(0%); }
+                            100% { transform: translateX(-50%); }
+                        }
+                        .scrolling-title {
+                            display: inline-block;
+                            padding-left: 100%;
+                            animation: marquee 15s linear infinite;
+                        }
+                        .scrolling-title.static {
+                            animation: none;
+                            padding-left: 0;
+                        }
+                    `}</style>
+                    <div style={{
+                        width: '100%',
+                        overflow: 'hidden',
+                        position: 'relative',
+                        WebkitMaskImage: 'linear-gradient(90deg, transparent, black 10%, black 90%, transparent)'
+                    }}>
+                        <h2
+                            className={currentVideo && currentVideo.title.length > 30 ? 'scrolling-title' : 'scrolling-title static'}
+                            style={{
+                                fontSize: '1.5rem',
+                                marginBottom: '0.25rem',
+                                whiteSpace: 'nowrap',
+                                fontWeight: 'bold',
+                                display: 'inline-block'
+                            }}
+                        >
+                            {currentVideo ? `${currentVideo.title}     ${currentVideo.title}` : 'No Video Playing'}
+                        </h2>
+                    </div>
+                    <p className="text-muted" style={{ fontSize: '1rem', marginTop: '0.25rem' }}>
                         {currentVideo ? currentVideo.channel : 'Add songs to queue'}
                     </p>
                 </div>
