@@ -9,12 +9,38 @@ export const useRealtimeSync = (roomId, user, onMessage, onPeerConnect) => {
     // Keep refs fresh
     const onMessageRef = useRef(onMessage)
     const onPeerConnectRef = useRef(onPeerConnect)
+    const sendToPeerRef = useRef(null)
 
     useEffect(() => {
         onMessageRef.current = onMessage
         onPeerConnectRef.current = onPeerConnect
         userRef.current = user
     }, [onMessage, onPeerConnect, user])
+
+    // Define sendToPeer function and store in ref so it can be called from within effects
+    const sendToPeer = async (peerId, data) => {
+        if (!channelRef.current) return
+
+        // For Supabase, a "Direct Message" is just a broadcast with a target field
+        // that clients filter out.
+        const payload = {
+            sender: userRef.current.id,
+            senderEmail: userRef.current.email,
+            target: peerId,
+            data: data
+        }
+
+        await channelRef.current.send({
+            type: 'broadcast',
+            event: 'message',
+            payload: payload
+        })
+    }
+
+    // Store sendToPeer in ref for use in callbacks
+    useEffect(() => {
+        sendToPeerRef.current = sendToPeer
+    }, [])
 
     useEffect(() => {
         if (!roomId || !user) return
@@ -62,8 +88,8 @@ export const useRealtimeSync = (roomId, user, onMessage, onPeerConnect) => {
                 // Here we might not strictly need it, BUT Room.jsx uses it to sync state to new users.
                 // So let's trigger it for everyone we see.
                 presentUsers.forEach(p => {
-                    if (onPeerConnectRef.current) {
-                        onPeerConnectRef.current(p.peerId, p.userEmail, sendToPeer)
+                    if (onPeerConnectRef.current && sendToPeerRef.current) {
+                        onPeerConnectRef.current(p.peerId, p.userEmail, sendToPeerRef.current)
                     }
                 })
             })
@@ -113,25 +139,6 @@ export const useRealtimeSync = (roomId, user, onMessage, onPeerConnect) => {
         const payload = {
             sender: userRef.current.id,
             senderEmail: userRef.current.email,
-            data: data
-        }
-
-        await channelRef.current.send({
-            type: 'broadcast',
-            event: 'message',
-            payload: payload
-        })
-    }
-
-    const sendToPeer = async (peerId, data) => {
-        if (!channelRef.current) return
-
-        // For Supabase, a "Direct Message" is just a broadcast with a target field
-        // that clients filter out.
-        const payload = {
-            sender: userRef.current.id,
-            senderEmail: userRef.current.email,
-            target: peerId,
             data: data
         }
 
