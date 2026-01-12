@@ -762,15 +762,13 @@ export default function Room() {
 
     return (
         <div style={{
-            minHeight: '100vh', /* Changed from height: 100vh */
+            minHeight: '100vh',
             width: '100%',
             background: 'radial-gradient(circle at top right, hsl(var(--primary) / 0.2), transparent 40%)',
             overflowX: 'hidden'
-            /* Removed overflowY: hidden to allow global scroll */
         }}>
             <div className="container room-layout" style={{
                 padding: '2rem 1rem',
-                /* Removed height: 100% */
                 boxSizing: 'border-box'
             }}>
                 <style>{`
@@ -1105,10 +1103,10 @@ export default function Room() {
                 <div className="glass-card room-right-col" style={{
                     display: 'flex',
                     flexDirection: 'column',
-                    height: 'calc(100vh - 4rem)', /* Fixed viewport height */
+                    height: 'calc(100vh - 4rem)',
                     padding: '0',
                     overflow: 'hidden',
-                    position: 'sticky', /* Locks position while scrolling */
+                    position: 'sticky',
                     top: '2rem'
                 }}>
 
