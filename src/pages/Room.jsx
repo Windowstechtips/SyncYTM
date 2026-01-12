@@ -806,7 +806,7 @@ export default function Room() {
                 <style>{`
                 .room-layout {
                     display: grid;
-                    grid-template-columns: minmax(0, 3fr) 1fr;
+                    grid-template-columns: 1fr 350px;
                     /* Removed grid-template-rows constraints */
                     align-items: start; /* Align items to top */
                     gap: 2rem;
@@ -1228,9 +1228,9 @@ export default function Room() {
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                                         {/* Show Me First */}
                                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem', background: 'hsla(var(--surface-hover)/0.5)', borderRadius: 'var(--radius-md)' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'hsl(var(--success))' }} />
-                                                <span style={{ fontSize: '0.9rem' }}>{user.user_metadata?.username || user.email}</span>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0, flex: 1 }}>
+                                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'hsl(var(--success))', flexShrink: 0 }} />
+                                                <span style={{ fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.user_metadata?.username || user.email}</span>
                                                 <span style={{
                                                     fontSize: '0.7rem',
                                                     background: 'hsl(var(--primary))',
@@ -1250,12 +1250,12 @@ export default function Room() {
 
                                             return (
                                                 <div key={p.peerId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem', background: 'hsl(var(--surface))', borderRadius: '8px' }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                                        <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'hsl(var(--primary))', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 'bold' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0, flex: 1 }}>
+                                                        <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'hsl(var(--primary))', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 'bold', flexShrink: 0 }}>
                                                             {displayName[0].toUpperCase()}
                                                         </div>
-                                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                            <span style={{ fontSize: '0.9rem' }}>{displayName}</span>
+                                                        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+                                                            <span style={{ fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayName}</span>
                                                             <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>
                                                                 {isThisUserHost ? 'Host' : (isRemote ? 'Remote Access' : 'Guest')}
                                                             </span>
