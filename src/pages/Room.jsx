@@ -319,6 +319,18 @@ export default function Room() {
         fetchRoom()
     }, [id])
 
+    // Update Active Listeners Count (Host Only)
+    useEffect(() => {
+        if (isHost && room) {
+            // Count = Peers + Host (1)
+            const count = peers.length + 1
+            const updateListeners = async () => {
+                await supabase.from('rooms').update({ active_listeners: count }).eq('id', id)
+            }
+            updateListeners()
+        }
+    }, [peers.length, isHost, room?.id])
+
     const fetchRoom = async () => {
         const { data, error } = await supabase.from('rooms').select('*').eq('id', id).single()
         if (error) {
