@@ -162,6 +162,7 @@ export default function Home() {
                 paddingTop: '2rem',
                 paddingBottom: '2rem',
                 flex: 1,
+                width: '100%', // Ensure it takes available width up to max-width
             }}>
                 <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3rem' }}>
                     <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '2rem' }}>
