@@ -723,11 +723,13 @@ export default function Room() {
             minHeight: '100vh',
             width: '100%',
             background: 'radial-gradient(circle at top right, hsl(var(--primary) / 0.2), transparent 40%)',
-            overflowX: 'hidden'
+            overflowX: 'hidden',
+            overflowY: 'hidden' // Force no body scroll on desktop
         }}>
             <div className="container room-layout" style={{
-                padding: '2rem 0',
-                height: 'auto'
+                padding: '2rem 1rem',
+                height: 'calc(100vh - 4rem)', // Fixed height for internal scrolling
+                boxSizing: 'border-box'
             }}>
                 <style>{`
                 .room-layout {
@@ -747,6 +749,7 @@ export default function Room() {
                     }
                     .room-right-col {
                         height: 500px !important;
+                        flex: none !important;
                     }
                     /* Mobile Header Optimizations */
                     .mobile-hide-text span {
