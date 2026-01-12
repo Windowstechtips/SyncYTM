@@ -812,7 +812,7 @@ export default function Room() {
 
                     {/* Player Area - Swappable */}
                     <div style={{ flexShrink: 0 }}>
-                        <div style={{ display: isMusicMode ? 'none' : 'block' }}>
+                        <div style={{ display: isMusicMode ? 'none' : 'block', position: 'relative' }}>
                             {url ? (
                                 <Player
                                     url={url}
@@ -839,12 +839,6 @@ export default function Room() {
                                     </div>
                                 </div>
                             )}
-                            {/* Overlay to block controls for non-remotes */}
-                            <div style={{
-                                position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-                                zIndex: 10, background: 'transparent',
-                                pointerEvents: 'none'
-                            }}></div>
                         </div>
 
                         {isMusicMode && (
