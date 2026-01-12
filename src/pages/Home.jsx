@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, Play, Lock, Music, Trash2, Edit2, Users } from 'lucide-react'
 import { containsBadWords } from '../lib/badWords'
 import { useRoomCounts } from '../hooks/useGlobalPresence' // Import the hook
+import Footer from '../components/Footer'
 
 export default function Home() {
     const { user, signOut } = useAuth()
@@ -151,7 +152,12 @@ export default function Home() {
     }
 
     return (
-        <div className="container" style={{ paddingTop: '2rem', paddingBottom: '4rem' }}>
+        <div className="container" style={{
+            paddingTop: '2rem',
+            paddingBottom: '2rem',
+            flex: 1,
+            background: 'radial-gradient(circle at top right, hsl(var(--primary) / 0.35), transparent 50%), radial-gradient(circle at bottom left, hsl(var(--secondary) / 0.1), transparent 50%)',
+        }}>
             <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3rem' }}>
                 <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '2rem' }}>
                     <Music color="hsl(var(--primary))" /> SyncYTM
@@ -308,6 +314,8 @@ export default function Home() {
                     </div>
                 </div>
             )}
+
+            <Footer />
         </div >
     )
 }

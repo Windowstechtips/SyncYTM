@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import Player from '../components/Player'
 import SearchOverlay from '../components/SearchOverlay'
 import MusicModeUI from '../components/MusicModeUI'
+import Footer from '../components/Footer'
 import { getPlaylistItems } from '../services/youtube'
 
 import { useRealtimeSync } from '../hooks/useRealtimeSync'
@@ -791,12 +792,14 @@ export default function Room() {
         <div style={{
             minHeight: '100vh', /* Changed from height: 100vh */
             width: '100%',
-            background: 'radial-gradient(circle at top right, hsl(var(--primary) / 0.2), transparent 40%)',
-            overflowX: 'hidden'
+            background: 'radial-gradient(circle at top right, hsl(var(--primary) / 0.35), transparent 50%), radial-gradient(circle at bottom left, hsl(var(--secondary) / 0.1), transparent 50%)',
+            overflowX: 'hidden',
+            display: 'flex', flexDirection: 'column' // Enable flex col implementation for footer sticking
             /* Removed overflowY: hidden to allow global scroll */
         }}>
             <div className="container room-layout" style={{
                 padding: '2rem 1rem',
+                flex: 1, // Push footer down
                 /* Removed height: 100% */
                 boxSizing: 'border-box'
             }}>
@@ -1270,6 +1273,7 @@ export default function Room() {
                 </div>
 
             </div >
+            <Footer />
         </div>
     )
 }
