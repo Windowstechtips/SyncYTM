@@ -855,7 +855,12 @@ export default function Room() {
 
                     {/* Player Area - Swappable */}
                     <div style={{ flexShrink: 0 }}>
-                        <div style={{ display: isMusicMode ? 'none' : 'block', position: 'relative' }}>
+                        <div style={{
+                            visibility: isMusicMode ? 'hidden' : 'visible',
+                            height: isMusicMode ? '0' : 'auto',
+                            overflow: isMusicMode ? 'hidden' : 'visible',
+                            position: 'relative'
+                        }}>
                             {url ? (
                                 <Player
                                     url={url}

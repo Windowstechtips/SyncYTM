@@ -64,7 +64,7 @@ export default function MusicModeUI({
 
                     <button
                         onClick={onPlayPause}
-                        className="btn-primary"
+                        className="btn btn-primary"
                         style={{
                             width: '64px', height: '64px', borderRadius: '50%',
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
