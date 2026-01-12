@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Play, Lock, Music, Trash2, Edit2, Users } from 'lucide-react'
 import { containsBadWords } from '../lib/badWords'
+import { useRoomCounts } from '../hooks/useGlobalPresence' // Import the hook
 
 export default function Home() {
     const { user, signOut } = useAuth()
@@ -12,6 +13,7 @@ export default function Home() {
 
     const [activeRooms, setActiveRooms] = useState([])
     const [myRooms, setMyRooms] = useState([])
+    const roomCounts = useRoomCounts() // Get realtime counts
 
     const [showCreateModal, setShowCreateModal] = useState(false)
     const [showEditModal, setShowEditModal] = useState(false)
@@ -37,11 +39,16 @@ export default function Home() {
         const { data } = await supabase.from('rooms').select('*').order('created_at', { ascending: false })
         if (data) {
             // Filter Logic
-            // Active: Any room with listener > 0.
-            const active = data.filter(r => r.active_listeners > 0)
+            // Active: Any room with realtime listener count > 0 (Previously checked db column)
+            // But strict "activeRooms" list might need to filter based on checks.
+            // Since `roomCounts` updates frequently, we might want to derive activeRooms in render or effect.
+            // For now, let's keep `activeRooms` state populated with ALL rooms, and filter in render.
+            // Wait, fetchRooms filters? No, selects *.
+
             const mine = data.filter(r => r.host_id === user.id)
 
-            setActiveRooms(active)
+            // We'll store ALL public rooms in 'activeRooms' state, and filter by count in the JSX
+            setActiveRooms(data)
             setMyRooms(mine)
         }
     }
@@ -157,7 +164,7 @@ export default function Home() {
 
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem' }}>
                                     <div style={{ display: 'flex', gap: '0.5rem', fontSize: '0.8rem', color: 'hsl(var(--text-muted))' }}>
-                                        <Users size={14} /> {room.active_listeners || 0}
+                                        <Users size={14} /> {roomCounts[room.id] || 0}
                                     </div>
                                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                                         <button className="btn btn-ghost" style={{ padding: '0.4rem' }} onClick={(e) => { e.stopPropagation(); openEditModal(room) }} title="Edit">
@@ -181,7 +188,7 @@ export default function Home() {
             <div style={{ marginBottom: '2rem' }}>
                 <h2 style={{ fontSize: '1.5rem', marginBottom: '1.5rem' }}>Active Public Rooms</h2>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem' }}>
-                    {activeRooms.filter(r => r.host_id !== user.id).map(room => (
+                    {activeRooms.filter(r => r.host_id !== user.id && (roomCounts[r.id] > 0)).map(room => (
                         <div key={room.id} className="glass-card" style={{ padding: '1.5rem', transition: 'all 0.2s', cursor: 'pointer' }} onClick={() => navigate(`/room/${room.id}`)}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
                                 <h3 style={{ fontSize: '1.25rem', fontWeight: '600' }}>{room.name}</h3>
@@ -189,15 +196,16 @@ export default function Home() {
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div style={{ display: 'flex', gap: '0.5rem', fontSize: '0.9rem', color: 'hsl(var(--primary))' }}>
-                                    <Users size={16} /> {room.active_listeners || 0} Active
+                                    <Users size={16} /> {roomCounts[room.id] || 0} Active
                                 </div>
                                 <button className="btn btn-ghost" style={{ padding: '0.5rem 1rem', fontSize: '0.9rem' }}>
                                     Join <Play size={14} style={{ marginLeft: '4px' }} />
                                 </button>
                             </div>
                         </div>
+
                     ))}
-                    {activeRooms.filter(r => r.host_id !== user.id).length === 0 && (
+                    {activeRooms.filter(r => r.host_id !== user.id && (roomCounts[r.id] > 0)).length === 0 && (
                         <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '3rem', color: 'hsl(var(--text-muted))' }}>
                             <p>No other active rooms right now.</p>
                         </div>

@@ -8,6 +8,7 @@ import MusicModeUI from '../components/MusicModeUI'
 import { getPlaylistItems } from '../services/youtube'
 
 import { useRealtimeSync } from '../hooks/useRealtimeSync'
+import { useTrackRoomPresence } from '../hooks/useGlobalPresence'
 import { MessageCircle, Users, Send, Search as SearchIcon, ListMusic, Music2, Wifi, WifiOff, Activity, Play, Plus, Check, X, Shield, ShieldAlert, Home, Music, RefreshCw } from 'lucide-react'
 
 export default function Room() {
@@ -326,6 +327,12 @@ export default function Room() {
     }, [id])
 
     // Update Active Listeners Count (Host Only)
+    // Track global presence for Home page counts
+    useTrackRoomPresence(id, user?.id)
+
+    // Update Active Listeners Count (Host Only) - LEGACY DB UPDATE REMOVED/Omitted
+    // We now rely on Realtime Presence for the Home page count.
+    /*
     useEffect(() => {
         if (isHost && room) {
             // Count = Peers + Host (1)
@@ -336,6 +343,7 @@ export default function Room() {
             updateListeners()
         }
     }, [peers.length, isHost, room?.id])
+    */
 
     const fetchRoom = async () => {
         const { data, error } = await supabase.from('rooms').select('*').eq('id', id).single()
