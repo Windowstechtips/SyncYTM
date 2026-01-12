@@ -724,11 +724,11 @@ export default function Room() {
             width: '100%',
             background: 'radial-gradient(circle at top right, hsl(var(--primary) / 0.2), transparent 40%)',
             overflowX: 'hidden',
-            overflowY: 'hidden' // Force no body scroll on desktop
+            overflowY: 'auto' // Allow scrolling on desktop to view full playlist
         }}>
             <div className="container room-layout" style={{
                 padding: '2rem 1rem',
-                height: '100vh', // Fixed height for internal scrolling
+                minHeight: '100vh', // Allow content to expand beyond viewport
                 boxSizing: 'border-box'
             }}>
                 <style>{`
