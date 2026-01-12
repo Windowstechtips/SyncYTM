@@ -1226,21 +1226,36 @@ export default function Room() {
                                 <div>
                                     <h4 style={{ marginBottom: '0.5rem', fontSize: '0.8rem', textTransform: 'uppercase', opacity: 0.7 }}>Connected Peers</h4>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                        {[...peers, { peerId: 'me', userEmail: user.email + ' (You)' }].map(p => {
-                                            const rawEmail = p.userEmail.replace(' (You)', '')
+                                        {/* Show Me First */}
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem', background: 'hsla(var(--surface-hover)/0.5)', borderRadius: 'var(--radius-md)' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'hsl(var(--success))' }} />
+                                                <span style={{ fontSize: '0.9rem' }}>{user.user_metadata?.username || user.email}</span>
+                                                <span style={{
+                                                    fontSize: '0.7rem',
+                                                    background: 'hsl(var(--primary))',
+                                                    color: 'white',
+                                                    padding: '0.1rem 0.4rem',
+                                                    borderRadius: '10px',
+                                                    fontWeight: 'bold'
+                                                }}>YOU</span>
+                                            </div>
+                                            {isHost && <Shield size={16} color="hsl(var(--primary))" />}
+                                        </div>
 
-                                            // Improved Badge Logic
-                                            const isThisUserHost = p.peerId === room?.host_id || (p.peerId === 'me' && isHost)
-                                            const isRemote = remoteUsers.has(rawEmail) || isThisUserHost
+                                        {peers.map(p => {
+                                            const isThisUserHost = p.peerId === room?.host_id
+                                            const isRemote = remoteUsers.has(p.userEmail) || isThisUserHost
+                                            const displayName = p.username || p.userEmail
 
                                             return (
                                                 <div key={p.peerId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem', background: 'hsl(var(--surface))', borderRadius: '8px' }}>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                                         <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'hsl(var(--primary))', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 'bold' }}>
-                                                            {rawEmail[0].toUpperCase()}
+                                                            {displayName[0].toUpperCase()}
                                                         </div>
                                                         <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                            <span style={{ fontSize: '0.9rem' }}>{p.userEmail}</span>
+                                                            <span style={{ fontSize: '0.9rem' }}>{displayName}</span>
                                                             <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>
                                                                 {isThisUserHost ? 'Host' : (isRemote ? 'Remote Access' : 'Guest')}
                                                             </span>
@@ -1248,9 +1263,9 @@ export default function Room() {
                                                     </div>
 
                                                     {/* Host Controls */}
-                                                    {isHost && p.peerId !== 'me' && (
+                                                    {isHost && (
                                                         <button
-                                                            onClick={() => toggleRemote(rawEmail)}
+                                                            onClick={() => toggleRemote(p.userEmail)}
                                                             className={`btn ${isRemote && !isThisUserHost ? 'btn-primary' : 'btn-ghost'}`}
                                                             style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }}
                                                             disabled={isThisUserHost}
