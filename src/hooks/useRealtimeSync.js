@@ -25,7 +25,7 @@ export const useRealtimeSync = (roomId, user, onMessage, onPeerConnect) => {
         // that clients filter out.
         const payload = {
             sender: userRef.current.id,
-            senderEmail: userRef.current.email,
+            senderEmail: userRef.current.user_metadata?.username || userRef.current.email,
             target: peerId,
             data: data
         }
@@ -67,7 +67,10 @@ export const useRealtimeSync = (roomId, user, onMessage, onPeerConnect) => {
                         if (key !== user.id) {
                             presentUsers.push({
                                 peerId: key,
-                                userEmail: presence.user_email || 'Unknown',
+                                userEmail: presence.user_email || 'Unknown', // Note: This comes from presence tracking.
+                                // We need to ensure presence tracking sends username too?
+                                // Ah, the channel.track call needs to include username!
+                                username: presence.username || presence.user_email, // Add explicit username field
                                 // Add fake 'peer' object if legacy code expects it, 
                                 // but ideally we shouldn't access it. 
                                 // We'll add a dummy connected flag for safety.
@@ -120,7 +123,10 @@ export const useRealtimeSync = (roomId, user, onMessage, onPeerConnect) => {
             })
             .subscribe(async (status) => {
                 if (status === 'SUBSCRIBED') {
-                    await channel.track({ user_email: user.email })
+                    await channel.track({
+                        user_email: user.email,
+                        username: user.user_metadata?.username || user.email
+                    })
                 }
             })
 
@@ -138,7 +144,7 @@ export const useRealtimeSync = (roomId, user, onMessage, onPeerConnect) => {
         // Wrap data in our envelope
         const payload = {
             sender: userRef.current.id,
-            senderEmail: userRef.current.email,
+            senderEmail: userRef.current.user_metadata?.username || userRef.current.email,
             data: data
         }
 

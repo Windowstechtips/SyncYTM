@@ -517,7 +517,7 @@ export default function Room() {
         if (!newMessage.trim()) return
         const msg = { type: 'chat', payload: newMessage }
         broadcastData(msg)
-        setMessages(prev => [...prev, { id: user?.email ? Date.now() : Date.now() + 1, user: user?.email || 'Guest', text: newMessage }])
+        setMessages(prev => [...prev, { id: user?.email ? Date.now() : Date.now() + 1, user: user?.user_metadata?.username || user?.email || 'Guest', text: newMessage }])
         setNewMessage('')
     }
 

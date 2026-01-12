@@ -135,7 +135,7 @@ export default function Home() {
                     <Music color="hsl(var(--primary))" /> SyncYTM
                 </h1>
                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                    <span style={{ color: 'hsl(var(--text-muted))' }}>{user.email}</span>
+                    <span style={{ color: 'hsl(var(--text-muted))' }}>{user.user_metadata?.username || user.email}</span>
                     <button className="btn btn-ghost" onClick={signOut}>Log Out</button>
                 </div>
             </header>
