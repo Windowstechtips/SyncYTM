@@ -1013,7 +1013,7 @@ export default function Room() {
                                             </div>
 
                                             {/* Song List with Checkboxes */}
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '400px', overflowY: 'auto', paddingRight: '0.5rem' }}>
                                                 {playlistData.videos.map((video) => {
                                                     const isSelected = selectedSongs.has(video.id)
                                                     return (
