@@ -631,6 +631,33 @@ export default function Room() {
         }
     }
 
+    const handleTogglePlay = () => {
+        if (!hasRemote) return
+
+        if (isPlaying) {
+            // User Explicit Pause - Bypass Debounce for UI responsiveness
+            console.log('User Toggled Pause')
+            if (pauseDebounceRef.current) clearTimeout(pauseDebounceRef.current)
+            pauseDebounceRef.current = null
+
+            setIsPlaying(false)
+            broadcastData({ type: 'pause' })
+
+            if (isHost) {
+                const time = playerRef.current?.getCurrentTime() || 0
+                supabase.from('rooms').update({
+                    is_playing: false,
+                    progress: time,
+                    last_updated_at: new Date()
+                }).eq('id', id).then()
+            }
+        } else {
+            // User Explicit Play
+            console.log('User Toggled Play')
+            onPlay()
+        }
+    }
+
     const onPause = () => {
         // Critical: Ignore pauses that happen during Seek or Buffering
         if (isBlockingUpdates.current || seekingRef.current || isBufferingRef.current) {
@@ -641,6 +668,9 @@ export default function Room() {
             })
             return
         }
+
+        // Prevent redundant pause logic if state is already paused (e.g. via TogglePlay)
+        if (!isPlaying) return
 
         if (!hasRemote) { setIsPlaying(true); return; } // Prevent pause
 
@@ -859,7 +889,7 @@ export default function Room() {
                                 <MusicModeUI
                                     currentVideo={currentVideo}
                                     isPlaying={isPlaying}
-                                    onPlayPause={() => isPlaying ? onPause() : onPlay()}
+                                    onPlayPause={handleTogglePlay}
                                     onNext={handleNext}
                                     onPrev={handlePrev}
                                     onExit={() => setIsMusicMode(false)}
