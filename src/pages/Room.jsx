@@ -732,22 +732,23 @@ export default function Room() {
 
     return (
         <div style={{
-            height: '100vh',
+            minHeight: '100vh', /* Changed from height: 100vh */
             width: '100%',
             background: 'radial-gradient(circle at top right, hsl(var(--primary) / 0.2), transparent 40%)',
-            overflowX: 'hidden',
-            overflowY: 'hidden'
+            overflowX: 'hidden'
+            /* Removed overflowY: hidden to allow global scroll */
         }}>
             <div className="container room-layout" style={{
                 padding: '2rem 1rem',
-                height: '100%',
+                /* Removed height: 100% */
                 boxSizing: 'border-box'
             }}>
                 <style>{`
                 .room-layout {
                     display: grid;
                     grid-template-columns: minmax(0, 3fr) 1fr;
-                    grid-template-rows: minmax(0, 1fr); /* Critical Fix: Constraint Row Height */
+                    /* Removed grid-template-rows constraints */
+                    align-items: start; /* Align items to top */
                     gap: 2rem;
                 }
                 .mobile-only { display: none; }
@@ -757,7 +758,7 @@ export default function Room() {
                         display: flex;
                         flex-direction: column;
                         height: auto !important;
-                        overflow-y: auto !important;
+                        overflow-y: visible !important;
                         gap: 1rem;
                     }
                     .room-right-col {
@@ -790,8 +791,8 @@ export default function Room() {
                     </div>
                 )}
 
-                {/* Left Column - Scrollable */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', minHeight: 0, height: '100%', overflowY: 'auto', overflowX: 'hidden', paddingRight: '4px' }}>
+                {/* Left Column - Natural Height */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', minHeight: 0 }}>
                     <header style={{ marginBottom: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ minWidth: 0 }}>
                             <h2 style={{ fontSize: '1.5rem', marginBottom: '0.5rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{room?.name}</h2>
@@ -868,7 +869,7 @@ export default function Room() {
                     </div>
 
                     {/* Queue List with Tabs */}
-                    <div className="glass-card" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: '500px' }}>
+                    <div className="glass-card" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: '600px' }}>
                         {/* Queue Tabs Header */}
                         <div style={{ display: 'flex', borderBottom: '1px solid hsl(var(--border))' }}>
                             <button
@@ -913,7 +914,7 @@ export default function Room() {
                         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                             {/* QUEUE TAB */}
                             {queueTab === 'queue' && (
-                                <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                <div style={{ flex: 1, overflowY: 'visible', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                                     {queue.map((video, i) => {
                                         const isCurrent = currentVideo && currentVideo.id === video.id
                                         return (
@@ -951,7 +952,7 @@ export default function Room() {
 
                             {/* PLAYLISTS TAB */}
                             {queueTab === 'playlists' && (
-                                <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                <div style={{ flex: 1, overflowY: 'visible', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                                     {/* Info Box */}
                                     <div style={{ background: 'hsla(var(--primary)/0.1)', padding: '0.75rem', borderRadius: '8px', border: '1px solid hsla(var(--primary)/0.3)', fontSize: '0.85rem', lineHeight: '1.4' }}>
                                         📋 Paste a YouTube or YouTube Music playlist URL below. Note: The playlist must be <strong>public or unlisted</strong> to be imported.
@@ -1019,7 +1020,7 @@ export default function Room() {
                                             </div>
 
                                             {/* Song List with Checkboxes */}
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '400px', overflowY: 'auto', paddingRight: '0.5rem' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: 'none', paddingRight: '0.5rem' }}>
                                                 {playlistData.videos.map((video) => {
                                                     const isSelected = selectedSongs.has(video.id)
                                                     return (
@@ -1070,8 +1071,16 @@ export default function Room() {
                     </div>
                 </div>
 
-                {/* Right Column: Split Tabs */}
-                <div className="glass-card room-right-col" style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '0', overflow: 'hidden' }}>
+                {/* Right Column: Split Tabs - Sticky */}
+                <div className="glass-card room-right-col" style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    height: 'calc(100vh - 4rem)', /* Fixed viewport height */
+                    padding: '0',
+                    overflow: 'hidden',
+                    position: 'sticky', /* Locks position while scrolling */
+                    top: '2rem'
+                }}>
 
                     {/* Tabs Header */}
                     <div style={{ display: 'flex', borderBottom: '1px solid hsl(var(--border))' }}>
