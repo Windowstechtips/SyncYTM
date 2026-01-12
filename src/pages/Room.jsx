@@ -728,7 +728,7 @@ export default function Room() {
         }}>
             <div className="container room-layout" style={{
                 padding: '2rem 1rem',
-                height: 'calc(100vh - 4rem)', // Fixed height for internal scrolling
+                height: '100vh', // Fixed height for internal scrolling
                 boxSizing: 'border-box'
             }}>
                 <style>{`
