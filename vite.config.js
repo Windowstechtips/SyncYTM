@@ -11,4 +11,6 @@ export default defineConfig({
       protocolImports: true,
     }),
   ],
+  // Ensure static files from public directory are copied to dist
+  publicDir: 'public',
 })

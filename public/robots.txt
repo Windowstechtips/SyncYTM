@@ -1,0 +1,10 @@
+# robots.txt for SyncYTM
+User-agent: *
+Allow: /
+
+# Disallow authentication-related pages from indexing
+Disallow: /dashboard
+Disallow: /room/
+
+# Sitemap location
+Sitemap: https://your-site-url.com/sitemap.xml
