@@ -21,6 +21,7 @@ export default function Room() {
     const [loading, setLoading] = useState(true)
     const [isAuthorized, setIsAuthorized] = useState(false)
     const [passwordInput, setPasswordInput] = useState('')
+    const [passwordError, setPasswordError] = useState('')
 
     // Player State
     const [url, setUrl] = useState('')
@@ -54,8 +55,11 @@ export default function Room() {
     // Remote Control State
     const [remoteUsers, setRemoteUsers] = useState(new Set()) // Set of emails
     const [songRequests, setSongRequests] = useState([]) // Array of { video, user }
+    const [songRequestNotif, setSongRequestNotif] = useState('') // Inline toast for guests
 
     const playerRef = useRef(null)
+    // Rate-limit map: senderEmail -> last timestamp of request-sync (prevent DoS)
+    const requestSyncRateLimitRef = useRef(new Map())
     const isBlockingUpdates = useRef(false) // Strict Lock: Ignore outgoing events when true
 
     // Track Last Hydration/Sync to calculate drift
@@ -75,36 +79,49 @@ export default function Room() {
     const queueRef = useRef(queue)
     const remoteUsersRef = useRef(remoteUsers)
     const isHostRef = useRef(isHost)
+    // Ref to hold the host's email for grant-remote sender validation
+    const hostEmailRef = useRef(null)
+    // Debounce timer ref for DB queue writes
+    const dbQueueDebounceRef = useRef(null)
 
     useEffect(() => {
         stateRef.current = { url, isPlaying, queue, currentVideo }
         queueRef.current = queue
         remoteUsersRef.current = remoteUsers
         isHostRef.current = isHost // Derived from user/room
-    }, [url, isPlaying, queue, currentVideo, remoteUsers, isHost])
+        // Derive host email from room data whenever room changes
+        if (room?.host_id) {
+            // host email is tracked via the peers list for the host user;
+            // we store own email when we ARE the host, otherwise we derive from
+            // the presence data. For validation purposes, we only need to know
+            // the host's user id (room.host_id), which is available in room state.
+            // We keep this ref updated for use inside onData closure.
+            hostEmailRef.current = room.host_email || null
+        }
+    }, [url, isPlaying, queue, currentVideo, remoteUsers, isHost, room])
 
     // Callback for incoming WebRTC/Realtime data
-    const onData = React.useCallback((data, senderEmail) => {
+    const onData = React.useCallback((data, senderEmail, senderName, senderId) => {
         console.log('RX from', senderEmail, ':', data.type)
 
         // --- Security / Authorization Gate ---
         // If I am the Host, I should only accept control commands from Authorized Remote Users
-        const controlTypes = ['play', 'pause', 'seek', 'play-video', 'queue-add', 'sync-state']
+        const controlTypes = ['play', 'pause', 'seek', 'play-video', 'queue-add', 'queue-add-batch', 'sync-state']
         if (isHostRef.current && controlTypes.includes(data.type)) {
-            const isAuthorized = remoteUsersRef.current.has(senderEmail)
-            if (!isAuthorized) {
-                console.warn(`Host ignored unauthorized '${data.type}' from ${senderEmail}`)
+            const isAuthorizedSender = remoteUsersRef.current.has(senderEmail) || (senderName && remoteUsersRef.current.has(senderName))
+            if (!isAuthorizedSender) {
+                console.warn(`Host ignored unauthorized '${data.type}' from ${senderEmail} (${senderName})`)
                 return
             }
         }
         // -------------------------------------
 
         if (data.type === 'chat') {
-            setMessages(prev => [...prev, { id: Date.now(), user: senderEmail, text: data.payload }])
+            setMessages(prev => [...prev, { id: Date.now(), user: senderName || senderEmail, text: data.payload }])
         }
 
         if (data.type === 'sync-state') {
-            // Extra safety: Host never hydrates from peers (already covered by Auth Gate above, but explicit check)
+            // Extra safety: Host never hydrates from peers
             if (isHostRef.current) return
 
             console.log('HYDRATING STATE', data.state)
@@ -121,7 +138,6 @@ export default function Room() {
             if (time > 0) {
                 setTimeout(() => {
                     if (playerRef.current) playerRef.current.seekTo(time)
-                    // Release lock after enough time for seek + buffer to settle
                     setTimeout(() => {
                         isBlockingUpdates.current = false
                         console.log('HYDRATION UNLOCK')
@@ -139,14 +155,18 @@ export default function Room() {
         if (data.type === 'request-song') {
             // Only Host receives/handles this (UI wise)
             if (isHostRef.current) {
-                setSongRequests(prev => [...prev, { video: data.video, user: senderEmail, id: Date.now() }])
-                // Optional: Play a notification sound
+                setSongRequests(prev => [...prev, { video: data.video, user: senderName || senderEmail, id: Date.now() }])
                 console.log('Song Request Received:', data.video.title)
             }
         }
 
         if (data.type === 'grant-remote') {
-            // Update local remoteUsers list
+            // SECURITY: Only accept grant-remote if sender matches the room's host_id
+            if (senderId && room?.host_id && senderId !== room.host_id) {
+                console.warn(`Security: Rejected grant-remote from non-host sender ${senderEmail} (${senderId})`)
+                return
+            }
+
             const { targetEmail, value } = data
             setRemoteUsers(prev => {
                 const newSet = new Set(prev)
@@ -157,21 +177,20 @@ export default function Room() {
         }
 
         if (data.type === 'sync-remotes') {
-            // Host broadcasts the full list to new peers
+            // SECURITY: Only accept sync-remotes if sender matches room's host_id
+            if (senderId && room?.host_id && senderId !== room.host_id) {
+                console.warn(`Security: Rejected sync-remotes from non-host: ${senderEmail}`)
+                return
+            }
             setRemoteUsers(new Set(data.remotes))
         }
         // --------------------------
 
         // --- Request/Reply Sync Protocol ---
         if (data.type === 'request-time') {
-            // Use refs for current state check if needed, but direct ref access to player is safe
-            if (playerRef.current) {
+            if (playerRef.current && stateRef.current.isPlaying) {
                 const currentTime = playerRef.current.getCurrentTime()
-                // We can't access 'isPlaying' state easily here without ref, but checking player is enough
-                // Or use stateRef
-                if (stateRef.current.isPlaying) {
-                    broadcastDataRef.current({ type: 'time-update', time: currentTime })
-                }
+                broadcastDataRef.current({ type: 'time-update', time: currentTime })
             }
         }
 
@@ -184,6 +203,23 @@ export default function Room() {
                 }
             }
             setTimeout(() => isBlockingUpdates.current = false, 500)
+        }
+
+        // Periodic drift correction: host broadcasts time every 8s.
+        // Peers only seek if drift > 2s, to avoid disrupting normal playback.
+        if (data.type === 'time-ping') {
+            if (isHostRef.current) return // Host sent this
+            if (senderId && room?.host_id && senderId !== room.host_id) return // Must be from host
+            if (playerRef.current && stateRef.current.isPlaying) {
+                const myTime = playerRef.current.getCurrentTime()
+                const drift = Math.abs(myTime - data.time)
+                if (drift > 2.0) {
+                    console.log(`Drift correction from host: ${drift.toFixed(2)}s → seeking to ${data.time}`)
+                    isBlockingUpdates.current = true
+                    playerRef.current.seekTo(data.time)
+                    setTimeout(() => isBlockingUpdates.current = false, 1500)
+                }
+            }
         }
         // -----------------------------------
 
@@ -199,6 +235,16 @@ export default function Room() {
                     playerRef.current.seekTo(data.time)
                 }
             }
+
+            // Host persists play state to DB when triggered by remote user
+            if (isHostRef.current) {
+                const time = typeof data.time === 'number' ? data.time : (playerRef.current?.getCurrentTime() || 0)
+                supabase.from('rooms').update({
+                    is_playing: true,
+                    progress: time,
+                    last_updated_at: new Date()
+                }).eq('id', id).then()
+            }
         }
 
         if (data.type === 'pause') {
@@ -207,52 +253,126 @@ export default function Room() {
             setTimeout(() => isBlockingUpdates.current = false, 1000)
 
             setIsPlaying(false)
+
+            // Host persists pause state to DB when triggered by remote user
+            if (isHostRef.current) {
+                const time = playerRef.current?.getCurrentTime() || 0
+                supabase.from('rooms').update({
+                    is_playing: false,
+                    progress: time,
+                    last_updated_at: new Date()
+                }).eq('id', id).then()
+            }
         }
 
         if (data.type === 'seek') {
             console.log('RX: SEEK command', data.time)
             isBlockingUpdates.current = true
-            seekingRef.current = true // Prevent spurious pause events during seek
-            isBufferingRef.current = true // Seeking causes buffering
+            seekingRef.current = true
+            isBufferingRef.current = true
 
             setTimeout(() => {
                 isBlockingUpdates.current = false
                 seekingRef.current = false
                 isBufferingRef.current = false
                 console.log('Seek lock released')
-            }, 1500) // Extended timeout to cover seek + buffer settling
+            }, 1500)
 
             if (playerRef.current) {
-                console.log('Seeking player to:', data.time)
                 playerRef.current.seekTo(data.time)
-                console.log('SeekTo called successfully')
             } else {
                 console.warn('No playerRef available for seek')
+            }
+
+            // Host persists seek position to DB when triggered by remote user
+            if (isHostRef.current) {
+                supabase.from('rooms').update({
+                    progress: data.time,
+                    last_updated_at: new Date()
+                }).eq('id', id).then()
             }
         }
 
         if (data.type === 'play-video') {
             isBlockingUpdates.current = true
-            setTimeout(() => isBlockingUpdates.current = false, 4000) // Longer lock for video load
+            setTimeout(() => isBlockingUpdates.current = false, 4000)
 
-            // Direct call to state setter or ensure PlayVideo logic is safe
-            // Ideally we need to invoke logic that might depend on state.
-            // But for simple SetState it's fine.
-            // HOWEVER: playVideo function depends on state. 
-            // We should duplicate logic or use Ref logic.
-            // Simplified:
             setCurrentVideo(data.video)
             setUrl(`https://www.youtube.com/watch?v=${data.video.id}`)
             setIsPlaying(true)
+
+            // Host persists current_video to DB when triggered by remote user
+            if (isHostRef.current) {
+                supabase.from('rooms').update({
+                    current_video: data.video,
+                    is_playing: true,
+                    progress: 0,
+                    last_updated_at: new Date()
+                }).eq('id', id).then()
+            }
         }
 
         if (data.type === 'queue-add') {
-            setQueue(prev => [...prev, data.video])
+            let updatedQueue = null
+            setQueue(prev => {
+                // Deduplicate by queueItemId if present, else fall back to video id
+                const key = data.video.queueItemId || data.video.id
+                const alreadyExists = prev.some(v => (v.queueItemId || v.id) === key)
+                if (alreadyExists) return prev
+                updatedQueue = [...prev, data.video]
+                return updatedQueue
+            })
+
+            // Host: persist the updated queue to DB so it survives a page refresh
+            if (isHostRef.current) {
+                setTimeout(() => {
+                    const toPersist = updatedQueue || (
+                        queueRef.current.some(v => (v.queueItemId || v.id) === (data.video.queueItemId || data.video.id))
+                            ? queueRef.current
+                            : [...queueRef.current, data.video]
+                    )
+                    supabase.from('rooms').update({ queue: toPersist }).eq('id', id)
+                        .then(() => console.log('DB queue updated after remote queue-add'))
+                }, 200)
+            }
+        }
+
+        // Batch queue add for playlist imports — avoids broadcasting 50 individual events
+        if (data.type === 'queue-add-batch') {
+            let updatedQueue = null
+            setQueue(prev => {
+                const existingKeys = new Set(prev.map(v => v.queueItemId || v.id))
+                const newItems = (data.videos || []).filter(v => {
+                    const key = v.queueItemId || v.id
+                    return !existingKeys.has(key)
+                })
+                if (newItems.length === 0) return prev
+                updatedQueue = [...prev, ...newItems]
+                return updatedQueue
+            })
+
+            // Host: persist updated queue to DB
+            if (isHostRef.current) {
+                setTimeout(() => {
+                    const toPersist = updatedQueue || queueRef.current
+                    supabase.from('rooms').update({ queue: toPersist }).eq('id', id)
+                        .then(() => console.log('DB queue updated after queue-add-batch'))
+                }, 200)
+            }
         }
 
         if (data.type === 'request-sync') {
-            console.log('RX: Request Sync')
+            console.log('RX: Request Sync from', senderEmail)
             if (isHostRef.current) {
+                // Rate-limit: max 1 request-sync per sender per 5 seconds
+                const now = Date.now()
+                const lastTime = requestSyncRateLimitRef.current.get(senderEmail) || 0
+                if (now - lastTime < 5000) {
+                    console.warn(`Rate-limited request-sync from ${senderEmail}`)
+                    return
+                }
+                requestSyncRateLimitRef.current.set(senderEmail, now)
+
                 console.log('Sending Sync State payload...')
                 const currentTime = playerRef.current ? playerRef.current.getCurrentTime() : 0
                 const currentState = {
@@ -262,14 +382,10 @@ export default function Room() {
                         time: currentTime
                     }
                 }
-                // Broadcast to ensure everyone is aligned? Or just unicast?
-                // Broadcast is safer for general "resync" button
                 broadcastDataRef.current(currentState)
-                broadcastDataRef.current({ type: 'sync-remotes', remotes: Array.from(remoteUsersRef.current) })
+                broadcastDataRef.current({ type: 'sync-remotes', remotes: Array.from(remoteUsersRef.current), _fromHost: true })
 
-                // Force DB Update on manual sync request (Self-Repair)
-                // Use a fire-and-forget approach
-                const videoData = stateRef.current.currentVideo ? stateRef.current.currentVideo : null
+                const videoData = stateRef.current.currentVideo
                 if (videoData) {
                     supabase.from('rooms').update({
                         current_video: videoData,
@@ -280,7 +396,7 @@ export default function Room() {
                 }
             }
         }
-    }, [id]) // Re-bind if ID changes (rare)
+    }, [id, room?.host_id]) // Re-bind if ID or host_id changes
 
 
     const onPeerConnect = React.useCallback((peerId, email, sendToPeerFunc) => {
@@ -302,7 +418,7 @@ export default function Room() {
                 sendToPeerFunc(peerId, currentState)
             }
             // Send Remote Permissions List (Host only)
-            sendToPeerFunc(peerId, { type: 'sync-remotes', remotes: Array.from(remoteUsersRef.current) })
+            sendToPeerFunc(peerId, { type: 'sync-remotes', remotes: Array.from(remoteUsersRef.current), _fromHost: true })
         } else {
             // If I am a Guest and have no video, request sync from the new peer
             if (!stateRef.current.currentVideo) {
@@ -349,12 +465,16 @@ export default function Room() {
     const fetchRoom = async () => {
         const { data, error } = await supabase.from('rooms').select('*').eq('id', id).single()
         if (error) {
-            alert('Room not found')
             navigate('/')
         } else {
             setRoom(data)
             if (Array.isArray(data.queue)) {
                 setQueue(data.queue)
+            }
+
+            // Hydrate persisted remote_users from DB
+            if (Array.isArray(data.remote_users) && data.remote_users.length > 0) {
+                setRemoteUsers(new Set(data.remote_users))
             }
 
             // Hydrate Playback State
@@ -368,11 +488,16 @@ export default function Room() {
                     const lastUpdate = new Date(data.last_updated_at).getTime()
                     const now = Date.now()
                     const elapsed = (now - lastUpdate) / 1000
-                    const estimatedTime = (data.progress || 0) + elapsed
-                    // Seek to estimated time
-                    setTimeout(() => {
-                        if (playerRef.current) playerRef.current.seekTo(estimatedTime)
-                    }, 1000)
+                    if (elapsed >= 0 && elapsed < 3600) {
+                        const estimatedTime = (data.progress || 0) + elapsed
+                        setTimeout(() => {
+                            if (playerRef.current) playerRef.current.seekTo(estimatedTime)
+                        }, 1000)
+                    } else if (data.progress > 0) {
+                        setTimeout(() => {
+                            if (playerRef.current) playerRef.current.seekTo(data.progress)
+                        }, 1000)
+                    }
                 } else if (data.progress > 0) {
                     setTimeout(() => {
                         if (playerRef.current) playerRef.current.seekTo(data.progress)
@@ -388,28 +513,42 @@ export default function Room() {
     }
 
     // Helper to update Queue State everywhere (Local + DB + Peers)
-    const handleQueueUpdate = async (newQueue, shouldBroadcast = true) => {
-        setQueue(newQueue)
+    const handleQueueUpdate = (newQueue, shouldBroadcast = true) => {
+        // Assign unique queueItemIds to any new items that don't have one yet
+        const queueWithIds = newQueue.map(v => v.queueItemId ? v : { ...v, queueItemId: `${v.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}` })
+        setQueue(queueWithIds)
 
         // Broadcast change to peers
-        if (shouldBroadcast && newQueue.length > queue.length) {
-            // Optimization: Only broadcast the NEW item if it's an addition
-            const newItem = newQueue[newQueue.length - 1]
-            broadcastData({ type: 'queue-add', video: newItem })
+        if (shouldBroadcast) {
+            const prevLen = queueRef.current.length
+            const addedItems = queueWithIds.slice(prevLen)
+            if (addedItems.length === 1) {
+                // Single add: targeted event
+                broadcastData({ type: 'queue-add', video: addedItems[0] })
+            } else if (addedItems.length > 1) {
+                // Batch add (playlist import): send all new items at once
+                broadcastData({ type: 'queue-add-batch', videos: addedItems })
+            }
         }
 
-        // Persist to DB (Host Only) - Debounced ideally, but direct for now is safer for consistency
+        // Persist to DB (Host Only) — debounced 500ms to avoid hammering on rapid updates
         if (isHost) {
-            await supabase.from('rooms').update({ queue: newQueue }).eq('id', id)
+            if (dbQueueDebounceRef.current) clearTimeout(dbQueueDebounceRef.current)
+            dbQueueDebounceRef.current = setTimeout(() => {
+                supabase.from('rooms').update({ queue: queueWithIds }).eq('id', id)
+                    .then(() => console.log('DB queue persisted (debounced)'))
+                dbQueueDebounceRef.current = null
+            }, 500)
         }
     }
 
     const handlePasswordSubmit = (e) => {
         e.preventDefault()
         if (room.password_hash === passwordInput) {
+            setPasswordError('')
             setIsAuthorized(true)
         } else {
-            alert('Incorrect Password')
+            setPasswordError('Incorrect password. Please try again.')
         }
     }
 
@@ -455,9 +594,10 @@ export default function Room() {
             }
             setShowSearch(false)
         } else {
-            // If guest: Request song
+            // If guest: Request song — use inline notification instead of blocking alert
             broadcastData({ type: 'request-song', video })
-            alert('Song request sent to Host!')
+            setSongRequestNotif('Song request sent to host!')
+            setTimeout(() => setSongRequestNotif(''), 3000)
             setShowSearch(false)
         }
     }
@@ -497,8 +637,14 @@ export default function Room() {
         else newSet.add(targetEmail)
         setRemoteUsers(newSet)
 
-        // Broadcast
-        broadcastData({ type: 'grant-remote', targetEmail, value: !isGranted })
+        const newRemoteArray = Array.from(newSet)
+
+        // Broadcast with _fromHost flag so peers trust and apply it
+        broadcastData({ type: 'grant-remote', targetEmail, value: !isGranted, _fromHost: true })
+
+        // Persist to DB so grants survive host page refresh
+        supabase.from('rooms').update({ remote_users: newRemoteArray }).eq('id', id)
+            .then(() => console.log('remote_users persisted to DB'))
     }
 
     const approveRequest = (req) => {
@@ -616,6 +762,27 @@ export default function Room() {
     const onBuffer = () => {
         isBufferingRef.current = true
     }
+
+    // Critical fix: reset buffering flag when buffer clears so future pause events work correctly
+    const onBufferEnd = () => {
+        isBufferingRef.current = false
+    }
+
+    // Periodic drift correction — host broadcasts current time every 8s.
+    // Peers self-correct if drift > 2s (handled in onData 'time-ping' handler).
+    // This achieves near-realtime sync without interrupting normal playback.
+    useEffect(() => {
+        if (!isHost || !isAuthorized) return
+
+        const interval = setInterval(() => {
+            if (stateRef.current.isPlaying && playerRef.current) {
+                const currentTime = playerRef.current.getCurrentTime()
+                broadcastDataRef.current({ type: 'time-ping', time: currentTime })
+            }
+        }, 8000)
+
+        return () => clearInterval(interval)
+    }, [isHost, isAuthorized])
 
     const pauseDebounceRef = useRef(null)
 
@@ -780,7 +947,10 @@ export default function Room() {
                 <div className="glass-card animate-fade-in" style={{ width: '100%', maxWidth: '400px', padding: '2rem' }}>
                     <h2 style={{ marginBottom: '1.5rem', textAlign: 'center' }}>Private Room</h2>
                     <form onSubmit={handlePasswordSubmit}>
-                        <input className="input" type="password" placeholder="Enter Room Password" value={passwordInput} onChange={e => setPasswordInput(e.target.value)} autoFocus />
+                        <input className="input" type="password" placeholder="Enter Room Password" value={passwordInput} onChange={e => { setPasswordInput(e.target.value); setPasswordError('') }} autoFocus />
+                        {passwordError && (
+                            <p style={{ color: '#ff6b6b', fontSize: '0.875rem', marginTop: '0.5rem' }}>{passwordError}</p>
+                        )}
                         <button type="submit" className="btn btn-primary" style={{ marginTop: '1rem', width: '100%' }}>Enter Room</button>
                     </form>
                 </div>
@@ -842,6 +1012,18 @@ export default function Room() {
             `}</style>
 
                 {showSearch && <SearchOverlay onClose={() => setShowSearch(false)} onAddParams={handleVideoAction} isRequest={!hasRemote} />}
+
+                {/* Song request notification toast */}
+                {songRequestNotif && (
+                    <div style={{
+                        position: 'fixed', top: '1.5rem', left: '50%', transform: 'translateX(-50%)',
+                        zIndex: 2000, background: 'hsl(var(--primary))', color: 'white',
+                        padding: '0.75rem 1.5rem', borderRadius: '8px', fontWeight: '600',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.3)', pointerEvents: 'none'
+                    }}>
+                        {songRequestNotif}
+                    </div>
+                )}
 
                 {/* Network Debug */}
                 {showDebug && (
@@ -905,6 +1087,7 @@ export default function Room() {
                                     onPlay={onPlay}
                                     onPause={onPause}
                                     onBuffer={onBuffer}
+                                    onBufferEnd={onBufferEnd}
                                     onSeek={onSeek}
                                     onEnded={onEnded}
                                 />
@@ -1240,7 +1423,11 @@ export default function Room() {
                                                     fontWeight: 'bold'
                                                 }}>YOU</span>
                                             </div>
-                                            {isHost && <Shield size={16} color="hsl(var(--primary))" />}
+                                            {isHost ? (
+                                                <Shield size={16} color="hsl(var(--primary))" title="Host" />
+                                            ) : (
+                                                hasRemote && <Shield size={16} color="hsl(var(--secondary))" title="Remote Control Active" />
+                                            )}
                                         </div>
 
                                         {peers.map(p => {

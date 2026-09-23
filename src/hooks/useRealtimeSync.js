@@ -6,10 +6,14 @@ export const useRealtimeSync = (roomId, user, onMessage, onPeerConnect) => {
     const channelRef = useRef(null)
     const userRef = useRef(user)
 
-    // Keep refs fresh
+    // Keep callbacks fresh without re-running the channel setup effect
     const onMessageRef = useRef(onMessage)
     const onPeerConnectRef = useRef(onPeerConnect)
     const sendToPeerRef = useRef(null)
+
+    // Track which peer IDs we've already called onPeerConnect for,
+    // so we only fire it on genuinely NEW joins — not on every presence sync.
+    const seenPeerIdsRef = useRef(new Set())
 
     useEffect(() => {
         onMessageRef.current = onMessage
@@ -17,15 +21,15 @@ export const useRealtimeSync = (roomId, user, onMessage, onPeerConnect) => {
         userRef.current = user
     }, [onMessage, onPeerConnect, user])
 
-    // Define sendToPeer function and store in ref so it can be called from within effects
+    // sendToPeer: targeted unicast via broadcast with a `target` field.
+    // Receivers filter by target; non-targets drop the message.
     const sendToPeer = async (peerId, data) => {
         if (!channelRef.current) return
 
-        // For Supabase, a "Direct Message" is just a broadcast with a target field
-        // that clients filter out.
         const payload = {
             sender: userRef.current.id,
-            senderEmail: userRef.current.user_metadata?.username || userRef.current.email,
+            senderEmail: userRef.current.email,
+            senderName: userRef.current.user_metadata?.username || userRef.current.email,
             target: peerId,
             data: data
         }
@@ -37,7 +41,6 @@ export const useRealtimeSync = (roomId, user, onMessage, onPeerConnect) => {
         })
     }
 
-    // Store sendToPeer in ref for use in callbacks
     useEffect(() => {
         sendToPeerRef.current = sendToPeer
     }, [])
@@ -46,9 +49,13 @@ export const useRealtimeSync = (roomId, user, onMessage, onPeerConnect) => {
         if (!roomId || !user) return
 
         console.log('Mounting useRealtimeSync for room:', roomId)
+        // Reset seen peers on room mount / remount
+        seenPeerIdsRef.current = new Set()
 
         const channel = supabase.channel(`room:${roomId}`, {
             config: {
+                // self: false → Supabase won't echo our own broadcasts back to us (server-side filter)
+                broadcast: { self: false },
                 presence: {
                     key: user.id,
                 },
@@ -60,20 +67,13 @@ export const useRealtimeSync = (roomId, user, onMessage, onPeerConnect) => {
                 const state = channel.presenceState()
                 const presentUsers = []
 
-                // Convert presence state to simple peer list format
                 Object.keys(state).forEach(key => {
                     state[key].forEach(presence => {
-                        // Don't list ourselves as a peer (consistent with useWebRTC)
                         if (key !== user.id) {
                             presentUsers.push({
                                 peerId: key,
-                                userEmail: presence.user_email || 'Unknown', // Note: This comes from presence tracking.
-                                // We need to ensure presence tracking sends username too?
-                                // Ah, the channel.track call needs to include username!
-                                username: presence.username || presence.user_email, // Add explicit username field
-                                // Add fake 'peer' object if legacy code expects it, 
-                                // but ideally we shouldn't access it. 
-                                // We'll add a dummy connected flag for safety.
+                                userEmail: presence.user_email || 'Unknown',
+                                username: presence.username || presence.user_email,
                                 peer: { connected: true }
                             })
                         }
@@ -83,42 +83,44 @@ export const useRealtimeSync = (roomId, user, onMessage, onPeerConnect) => {
                 setPeers(presentUsers)
                 console.log('Presence synced:', presentUsers.length, 'peers')
 
-                // Notify about "new" connections to trigger any init logic
-                // In Supabase, we don't get individual "connect" events easily on sync,
-                // but we can check if we have new peers. 
-                // For simplicity/robustness, we can iterate all.
-                // However, preserving existing logic: "onPeerConnect" was for P2P handshake.
-                // Here we might not strictly need it, BUT Room.jsx uses it to sync state to new users.
-                // So let's trigger it for everyone we see.
+                // Only fire onPeerConnect for peers we haven't seen yet
+                const currentIds = new Set(presentUsers.map(p => p.peerId))
                 presentUsers.forEach(p => {
-                    if (onPeerConnectRef.current && sendToPeerRef.current) {
-                        onPeerConnectRef.current(p.peerId, p.userEmail, sendToPeerRef.current)
+                    if (!seenPeerIdsRef.current.has(p.peerId)) {
+                        console.log('New peer detected:', p.userEmail)
+                        if (onPeerConnectRef.current && sendToPeerRef.current) {
+                            onPeerConnectRef.current(p.peerId, p.userEmail, sendToPeerRef.current)
+                        }
+                        seenPeerIdsRef.current.add(p.peerId)
+                    }
+                })
+
+                // Remove left peers from seen set so they trigger onPeerConnect again if they rejoin
+                seenPeerIdsRef.current.forEach(id => {
+                    if (!currentIds.has(id)) {
+                        seenPeerIdsRef.current.delete(id)
                     }
                 })
             })
             .on('presence', { event: 'join' }, ({ key, newPresences }) => {
                 console.log('User joined:', key, newPresences)
-                // Sync event will usually follow and handle the list update
             })
-            .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+            .on('presence', { event: 'leave' }, ({ key }) => {
                 console.log('User left:', key)
+                seenPeerIdsRef.current.delete(key)
             })
             .on('broadcast', { event: 'message' }, ({ payload }) => {
-                // payload: { type, sender, senderEmail, data, target }
+                // payload: { sender, senderEmail, senderName, data, target? }
 
-                // Filter if it's a direct message meant for someone else
+                // Filter targeted messages not meant for us
                 if (payload.target && payload.target !== user.id) {
                     return
                 }
 
-                // Avoid processing own messages (broadcast sends to everyone including self sometimes? 
-                // Supabase broadcast usually excludes sender, but let's be safe)
                 if (payload.sender === user.id) return
 
                 if (onMessageRef.current) {
-                    // Pass directly to Room.jsx's onData
-                    // Room.jsx expects (data, senderEmail)
-                    onMessageRef.current(payload.data, payload.senderEmail)
+                    onMessageRef.current(payload.data, payload.senderEmail, payload.senderName, payload.sender)
                 }
             })
             .subscribe(async (status) => {
@@ -134,6 +136,7 @@ export const useRealtimeSync = (roomId, user, onMessage, onPeerConnect) => {
 
         return () => {
             console.log('Cleaning up Realtime hook')
+            seenPeerIdsRef.current = new Set()
             supabase.removeChannel(channel)
         }
     }, [roomId, user?.id])
@@ -141,10 +144,10 @@ export const useRealtimeSync = (roomId, user, onMessage, onPeerConnect) => {
     const broadcastData = async (data) => {
         if (!channelRef.current) return
 
-        // Wrap data in our envelope
         const payload = {
             sender: userRef.current.id,
-            senderEmail: userRef.current.user_metadata?.username || userRef.current.email,
+            senderEmail: userRef.current.email,
+            senderName: userRef.current.user_metadata?.username || userRef.current.email,
             data: data
         }
 

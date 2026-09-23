@@ -1,7 +1,7 @@
-import React, { useRef, useEffect } from 'react'
+import React from 'react'
 import ReactPlayer from 'react-player/youtube'
 
-const Player = ({ url, isPlaying, onProgress, onDuration, onBuffer, onEnded, onReady, onPlay, onPause, onSeek, playerRef }) => {
+const Player = ({ url, isPlaying, onProgress, onDuration, onBuffer, onBufferEnd, onEnded, onReady, onPlay, onPause, onSeek, playerRef }) => {
     return (
         <div style={{
             position: 'relative',
@@ -19,9 +19,11 @@ const Player = ({ url, isPlaying, onProgress, onDuration, onBuffer, onEnded, onR
                 width='100%'
                 height='100%'
                 style={{ position: 'absolute', top: 0, left: 0 }}
+                progressInterval={500}
                 onProgress={onProgress}
                 onDuration={onDuration}
                 onBuffer={onBuffer}
+                onBufferEnd={onBufferEnd}
                 onEnded={onEnded}
                 onReady={onReady}
                 onPlay={onPlay}

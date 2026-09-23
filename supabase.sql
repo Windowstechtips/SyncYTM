@@ -31,8 +31,12 @@ create table rooms (
   is_playing boolean default false, -- Syncs the play/pause state
   progress float default 0, -- Syncs the seek position (in seconds)
   active_listeners int default 0, -- Number of active listeners
-  last_updated_at timestamptz default now() -- Timestamp of the last state change
+  last_updated_at timestamptz default now(), -- Timestamp of the last state change
+  remote_users text[] default '{}'::text[] -- Persisted list of emails with remote-control access
 );
+
+-- Migration: Add remote_users column if it doesn't exist yet (run this if table already exists)
+-- ALTER TABLE rooms ADD COLUMN IF NOT EXISTS remote_users text[] default '{}'::text[];
 
 alter table rooms enable row level security;
 

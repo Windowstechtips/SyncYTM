@@ -19,9 +19,10 @@ export default function SearchOverlay({ onClose, onAddParams }) {
 
     return (
         <div style={{
-            position: 'absolute', inset: 0, zIndex: 50,
-            background: 'rgba(0,0,0,0.9)', backdropFilter: 'blur(10px)',
-            display: 'flex', flexDirection: 'column', padding: '2rem'
+            position: 'fixed', inset: 0, zIndex: 1000,
+            background: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(10px)',
+            display: 'flex', flexDirection: 'column', padding: '2rem',
+            overflowY: 'auto'
         }} className="animate-fade-in">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
                 <h2 style={{ fontSize: '2rem' }}>Search Music</h2>
