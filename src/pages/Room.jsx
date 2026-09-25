@@ -63,10 +63,19 @@ export default function Room() {
     const [songRequests, setSongRequests] = useState([]) // Array of { video, user }
     const [songRequestNotif, setSongRequestNotif] = useState('') // Inline toast for guests
 
+    // Precision Sync / Refetch State
+    const [isSyncing, setIsSyncing] = useState(false)
+    const [syncToast, setSyncToast] = useState('')
+    const lastSyncClickRef = useRef(0)
+    const syncTimeoutRef = useRef(null)
+    const clientSentAtRef = useRef(0)
+
     const playerRef = useRef(null)
     // Rate-limit map: senderEmail -> last timestamp of request-sync (prevent DoS)
     const requestSyncRateLimitRef = useRef(new Map())
     const isBlockingUpdates = useRef(false) // Strict Lock: Ignore outgoing events when true
+    const isSyncingRef = useRef(false) // Keep sync state accessible inside callbacks
+    isSyncingRef.current = isSyncing
 
     // Track Last Hydration/Sync to calculate drift
     const lastSyncRef = useRef({ time: 0, timestamp: 0 })
@@ -132,29 +141,78 @@ export default function Room() {
             if (isHostRef.current) return
 
             console.log('HYDRATING STATE', data.state)
-            const { url, isPlaying: remoteIsPlaying, queue: remoteQueue, currentVideo, time } = data.state
+            const { url: remoteUrl, isPlaying: remoteIsPlaying, queue: remoteQueue, currentVideo: remoteCurrentVideo, time } = data.state
 
             isBlockingUpdates.current = true // START HYDRATION LOCK
 
             if (remoteQueue) setQueue(remoteQueue)
-            setCurrentVideo(currentVideo)
-            if (url) setUrl(url)
+            if (remoteCurrentVideo) setCurrentVideo(remoteCurrentVideo)
+            if (remoteUrl) setUrl(remoteUrl)
 
             setIsPlaying(remoteIsPlaying)
 
-            if (time > 0) {
+            // Precision latency calculation:
+            // Calculate delay between when client sent request and when state is received
+            const sentAt = data.clientSentAt || clientSentAtRef.current
+            let compensatedTime = typeof time === 'number' ? time : 0
+            let rttMs = null
+
+            if (sentAt) {
+                rttMs = Math.max(0, Date.now() - sentAt)
+                const oneWayDelaySec = (rttMs / 2) / 1000
+                if (remoteIsPlaying) {
+                    compensatedTime += oneWayDelaySec
+                }
+                console.log(`[Sync Precision] RTT: ${rttMs}ms, One-Way delay: ${(oneWayDelaySec * 1000).toFixed(1)}ms. Raw: ${time?.toFixed(2)}s -> Compensated: ${compensatedTime.toFixed(2)}s`)
+                clientSentAtRef.current = 0 // consumed
+            } else if (data.hostSentAt && remoteIsPlaying) {
+                const transitSec = Math.max(0, (Date.now() - data.hostSentAt) / 1000)
+                if (transitSec < 5) {
+                    compensatedTime += transitSec
+                }
+            }
+
+            // If client is ALREADY playing the exact same video, seek immediately!
+            const isSameVideo = (stateRef.current.url === remoteUrl || (stateRef.current.currentVideo?.id && stateRef.current.currentVideo?.id === remoteCurrentVideo?.id)) && playerRef.current
+
+            if (isSameVideo && compensatedTime > 0) {
+                playerRef.current.seekTo(compensatedTime)
+                setProgress(compensatedTime)
                 setTimeout(() => {
-                    if (playerRef.current) playerRef.current.seekTo(time)
+                    isBlockingUpdates.current = false
+                    console.log('HYDRATION UNLOCK (immediate seek)')
+                }, 1200)
+            } else if (compensatedTime > 0) {
+                // Video is new/mounting: wait for player to mount, but compensate for the wait time
+                const receiveTime = performance.now()
+                setTimeout(() => {
+                    if (playerRef.current) {
+                        const elapsed = (performance.now() - receiveTime) / 1000
+                        const finalSeekTime = compensatedTime + (remoteIsPlaying ? elapsed : 0)
+                        playerRef.current.seekTo(finalSeekTime)
+                        setProgress(finalSeekTime)
+                    }
                     setTimeout(() => {
                         isBlockingUpdates.current = false
-                        console.log('HYDRATION UNLOCK')
-                    }, 3000)
+                        console.log('HYDRATION UNLOCK (delayed seek)')
+                    }, 2000)
                 }, 1000)
             } else {
                 setTimeout(() => {
                     isBlockingUpdates.current = false
-                    console.log('HYDRATION UNLOCK')
-                }, 2000)
+                    console.log('HYDRATION UNLOCK (no seek)')
+                }, 1500)
+            }
+
+            // Stop sync animation and show latency feedback
+            if (syncTimeoutRef.current) {
+                clearTimeout(syncTimeoutRef.current)
+                syncTimeoutRef.current = null
+            }
+            setIsSyncing(false)
+            if (rttMs !== null) {
+                setSyncToast(`Synced with host (${rttMs}ms RTT)`)
+                setTimeout(() => setSyncToast(''), 2500)
             }
         }
 
@@ -219,11 +277,13 @@ export default function Room() {
             if (senderId && room?.host_id && senderId !== room.host_id) return // Must be from host
             if (playerRef.current && stateRef.current.isPlaying) {
                 const myTime = playerRef.current.getCurrentTime()
-                const drift = Math.abs(myTime - data.time)
+                const transitDelay = data.hostSentAt ? Math.max(0, (Date.now() - data.hostSentAt) / 1000) : 0
+                const targetHostTime = data.time + transitDelay
+                const drift = Math.abs(myTime - targetHostTime)
                 if (drift > 2.0) {
-                    console.log(`Drift correction from host: ${drift.toFixed(2)}s → seeking to ${data.time}`)
+                    console.log(`Drift correction from host: ${drift.toFixed(2)}s (transit: ${(transitDelay * 1000).toFixed(0)}ms) → seeking to ${targetHostTime}`)
                     isBlockingUpdates.current = true
-                    playerRef.current.seekTo(data.time)
+                    playerRef.current.seekTo(targetHostTime)
                     setTimeout(() => isBlockingUpdates.current = false, 1500)
                 }
             }
@@ -397,12 +457,12 @@ export default function Room() {
         }
 
         if (data.type === 'request-sync') {
-            console.log('RX: Request Sync from', senderEmail)
+            console.log('RX: Request Sync from', senderEmail, 'clientSentAt:', data.clientSentAt)
             if (isHostRef.current) {
-                // Rate-limit: max 1 request-sync per sender per 5 seconds
+                // Rate-limit: max 1 request-sync per sender per 2.5 seconds (prevents spam DoS)
                 const now = Date.now()
                 const lastTime = requestSyncRateLimitRef.current.get(senderEmail) || 0
-                if (now - lastTime < 5000) {
+                if (now - lastTime < 2500) {
                     console.warn(`Rate-limited request-sync from ${senderEmail}`)
                     return
                 }
@@ -412,6 +472,10 @@ export default function Room() {
                 const currentTime = playerRef.current ? playerRef.current.getCurrentTime() : 0
                 const currentState = {
                     type: 'sync-state',
+                    _fromHost: true,
+                    clientSentAt: data.clientSentAt,
+                    hostSentAt: Date.now(),
+                    requesterId: data.requesterId || senderId,
                     state: {
                         ...stateRef.current,
                         time: currentTime
@@ -545,6 +609,85 @@ export default function Room() {
             }
         }
         setLoading(false)
+    }
+
+    // Unified, delay-compensated Force Sync handler with anti-spam protection
+    const handleForceSync = async () => {
+        const now = Date.now()
+        // Anti-spam protection: 2s cooldown & prevent re-entry while isSyncing
+        if (isSyncing || (now - lastSyncClickRef.current < 2000)) {
+            console.log('Force Sync: Cooldown active or already syncing')
+            return
+        }
+        lastSyncClickRef.current = now
+        setIsSyncing(true)
+
+        if (isHost) {
+            console.log('HOST Force Sync: Re-syncing master state with DB and peers')
+            try {
+                // 1. Refresh room record from DB
+                await fetchRoom()
+                // 2. Sample current master player time
+                const currentTime = playerRef.current ? playerRef.current.getCurrentTime() : 0
+                // 3. Broadcast authoritative state to all peers with host timestamp
+                broadcastData({
+                    type: 'sync-state',
+                    _fromHost: true,
+                    hostSentAt: Date.now(),
+                    state: {
+                        ...stateRef.current,
+                        time: currentTime
+                    }
+                })
+                broadcastData({
+                    type: 'sync-remotes',
+                    remotes: Array.from(remoteUsersRef.current),
+                    _fromHost: true
+                })
+                // 4. Update Supabase progress
+                if (stateRef.current.currentVideo) {
+                    supabase.from('rooms').update({
+                        is_playing: stateRef.current.isPlaying,
+                        progress: currentTime,
+                        last_updated_at: new Date()
+                    }).eq('id', id).then()
+                }
+                setSyncToast('Broadcast master sync to peers')
+            } catch (err) {
+                console.error('Error during host sync:', err)
+                setSyncToast('Sync error')
+            } finally {
+                setTimeout(() => {
+                    setIsSyncing(false)
+                    setTimeout(() => setSyncToast(''), 2500)
+                }, 800)
+            }
+        } else {
+            console.log('PEER Force Sync: Sending timestamped sync request')
+            const clientSentAt = Date.now()
+            clientSentAtRef.current = clientSentAt
+
+            broadcastData({
+                type: 'request-sync',
+                clientSentAt,
+                requesterId: user?.id
+            })
+
+            // Hardened fallback timeout (3.5s):
+            // If the host is unresponsive or disconnected, recover state directly from Supabase DB!
+            if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current)
+            syncTimeoutRef.current = setTimeout(async () => {
+                console.warn('Host sync timeout — recovering state directly from DB')
+                try {
+                    await fetchRoom()
+                    setSyncToast('Synced via cloud database')
+                } catch {
+                    setSyncToast('Sync timed out')
+                }
+                setIsSyncing(false)
+                setTimeout(() => setSyncToast(''), 2500)
+            }, 3500)
+        }
     }
 
     // Helper to update Queue State everywhere (Local + DB + Peers)
@@ -891,7 +1034,12 @@ export default function Room() {
         const interval = setInterval(() => {
             if (stateRef.current.isPlaying && playerRef.current) {
                 const currentTime = playerRef.current.getCurrentTime()
-                broadcastDataRef.current({ type: 'time-ping', time: currentTime })
+                // Include hostSentAt so peers can compensate for network transit delay
+                broadcastDataRef.current({
+                    type: 'time-ping',
+                    time: currentTime,
+                    hostSentAt: Date.now()
+                })
             }
         }, 8000)
 
@@ -1241,6 +1389,27 @@ export default function Room() {
                     </div>
                 )}
 
+                {/* Sync status toast (precision feedback) */}
+                {(isSyncing || syncToast) && (
+                    <div style={{
+                        position: 'fixed', top: songRequestNotif ? '4.5rem' : '1.5rem', left: '50%', transform: 'translateX(-50%)',
+                        zIndex: 1999,
+                        background: isSyncing ? 'hsla(var(--surface)/0.95)' : 'hsla(140,60%,20%,0.95)',
+                        border: `1px solid ${isSyncing ? 'hsl(var(--border))' : 'hsl(140,60%,40%)'}`,
+                        color: 'white', padding: '0.55rem 1rem', borderRadius: '8px',
+                        fontWeight: '500', fontSize: '0.88rem',
+                        boxShadow: '0 4px 16px rgba(0,0,0,0.4)', pointerEvents: 'none',
+                        maxWidth: 'calc(100% - 2rem)', boxSizing: 'border-box',
+                        display: 'flex', alignItems: 'center', gap: '0.5rem',
+                        backdropFilter: 'blur(8px)'
+                    }}>
+                        {isSyncing && (
+                            <RefreshCw size={14} className="spin-animation" style={{ flexShrink: 0 }} />
+                        )}
+                        {isSyncing ? (isHost ? 'Syncing master state…' : 'Requesting sync from host…') : syncToast}
+                    </div>
+                )}
+
                 {/* Network Debug */}
                 {showDebug && (
                     <div style={{ position: 'fixed', bottom: '1rem', right: '1rem', left: 'auto', maxWidth: 'calc(100% - 2rem)', width: '300px', background: 'rgba(0,0,0,0.92)', padding: '1rem', borderRadius: '8px', zIndex: 9999, border: '1px solid #333', color: '#0f0', fontFamily: 'monospace', fontSize: '0.8rem', boxSizing: 'border-box' }}>
@@ -1263,8 +1432,20 @@ export default function Room() {
                         </div>
 
                         <div style={{ display: 'flex', gap: '0.35rem', flexShrink: 0, alignItems: 'center' }}>
-                            <button className="btn btn-ghost btn-mobile-compact" style={{ padding: '0.4rem', minHeight: '36px' }} onClick={() => broadcastData({ type: 'request-sync' })} title="Force Sync">
-                                <RefreshCw size={18} />
+                            <button
+                                className="btn btn-ghost btn-mobile-compact"
+                                style={{
+                                    padding: '0.4rem',
+                                    minHeight: '36px',
+                                    opacity: isSyncing ? 0.6 : 1,
+                                    cursor: isSyncing ? 'not-allowed' : 'pointer',
+                                    transition: 'opacity 0.2s ease'
+                                }}
+                                onClick={handleForceSync}
+                                disabled={isSyncing}
+                                title={isSyncing ? 'Syncing...' : 'Force Sync'}
+                            >
+                                <RefreshCw size={18} className={isSyncing ? 'spin-animation' : ''} />
                             </button>
                             <button className="btn btn-ghost btn-mobile-compact" style={{ padding: '0.4rem', minHeight: '36px' }} onClick={() => navigate('/')} title="Go Home">
                                 <Home size={18} />
