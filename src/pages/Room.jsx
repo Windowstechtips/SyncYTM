@@ -10,7 +10,7 @@ import { getPlaylistItems } from '../services/youtube'
 
 import { useRealtimeSync } from '../hooks/useRealtimeSync'
 import { useTrackRoomPresence } from '../hooks/useGlobalPresence'
-import { MessageCircle, Users, Send, Search as SearchIcon, ListMusic, Music2, Wifi, WifiOff, Activity, Play, Plus, Check, X, Shield, ShieldAlert, Home, Music, RefreshCw } from 'lucide-react'
+import { MessageCircle, Users, Send, Search as SearchIcon, ListMusic, Music2, Wifi, WifiOff, Activity, Play, Plus, Check, X, Shield, ShieldAlert, Home, Music, RefreshCw, Trash2, CheckSquare } from 'lucide-react'
 
 export default function Room() {
     const { id } = useParams()
@@ -45,6 +45,10 @@ export default function Room() {
     const [queueTab, setQueueTab] = useState('queue') // 'queue' | 'playlists'
     const [mobileTab, setMobileTab] = useState('queue') // 'queue' | 'chat' | 'users'
     const [unreadChatCount, setUnreadChatCount] = useState(0)
+
+    // Queue selection & deletion state
+    const [selectedQueueItems, setSelectedQueueItems] = useState(new Set())
+    const [isQueueSelectMode, setIsQueueSelectMode] = useState(false)
 
     // Playlist Import State
     const [playlistUrl, setPlaylistUrl] = useState('')
@@ -108,7 +112,7 @@ export default function Room() {
 
         // --- Security / Authorization Gate ---
         // If I am the Host, I should only accept control commands from Authorized Remote Users
-        const controlTypes = ['play', 'pause', 'seek', 'play-video', 'queue-add', 'queue-add-batch', 'sync-state']
+        const controlTypes = ['play', 'pause', 'seek', 'play-video', 'queue-add', 'queue-add-batch', 'queue-remove', 'queue-remove-batch', 'queue-clear', 'sync-state']
         if (isHostRef.current && controlTypes.includes(data.type)) {
             const isAuthorizedSender = remoteUsersRef.current.has(senderEmail) || (senderName && remoteUsersRef.current.has(senderName))
             if (!isAuthorizedSender) {
@@ -364,6 +368,34 @@ export default function Room() {
             }
         }
 
+        // Batch queue remove for deleting selected items
+        if (data.type === 'queue-remove-batch' || data.type === 'queue-remove') {
+            const idsToRemove = new Set(data.itemIds || [data.itemId])
+            let updatedQueue = null
+            setQueue(prev => {
+                updatedQueue = prev.filter((v, idx) => {
+                    const key = v.queueItemId || `${v.id}-${idx}`
+                    return !idsToRemove.has(key) && !idsToRemove.has(v.id)
+                })
+                return updatedQueue
+            })
+
+            if (isHostRef.current) {
+                setTimeout(() => {
+                    const toPersist = updatedQueue || queueRef.current
+                    supabase.from('rooms').update({ queue: toPersist }).eq('id', id)
+                        .then(() => console.log('DB queue updated after remote delete'))
+                }, 200)
+            }
+        }
+
+        if (data.type === 'queue-clear') {
+            setQueue([])
+            if (isHostRef.current) {
+                supabase.from('rooms').update({ queue: [] }).eq('id', id).then()
+            }
+        }
+
         if (data.type === 'request-sync') {
             console.log('RX: Request Sync from', senderEmail)
             if (isHostRef.current) {
@@ -545,6 +577,58 @@ export default function Room() {
         }
     }
 
+    // Helper to delete selected or specific items from the Queue
+    const handleDeleteQueueItems = (itemKeysToDelete) => {
+        if (!hasRemote) return
+        const keysSet = itemKeysToDelete instanceof Set ? itemKeysToDelete : new Set(itemKeysToDelete)
+        if (keysSet.size === 0) return
+
+        const newQueue = queue.filter((v, idx) => {
+            const key = v.queueItemId || `${v.id}-${idx}`
+            return !keysSet.has(key) && !keysSet.has(v.id)
+        })
+
+        setQueue(newQueue)
+        setSelectedQueueItems(new Set())
+        setIsQueueSelectMode(false)
+
+        broadcastData({
+            type: 'queue-remove-batch',
+            itemIds: Array.from(keysSet)
+        })
+
+        if (isHost) {
+            if (dbQueueDebounceRef.current) clearTimeout(dbQueueDebounceRef.current)
+            dbQueueDebounceRef.current = setTimeout(() => {
+                supabase.from('rooms').update({ queue: newQueue }).eq('id', id)
+                    .then(() => console.log('DB queue updated after delete'))
+                dbQueueDebounceRef.current = null
+            }, 300)
+        }
+    }
+
+    const handleDeleteSingleQueueItem = (video, index) => {
+        if (!hasRemote) return
+        const key = video.queueItemId || `${video.id}-${index}`
+        handleDeleteQueueItems(new Set([key]))
+    }
+
+    const handleClearQueue = () => {
+        if (!hasRemote) return
+        if (queue.length === 0) return
+        if (window.confirm('Are you sure you want to clear the entire queue?')) {
+            setQueue([])
+            setSelectedQueueItems(new Set())
+            setIsQueueSelectMode(false)
+
+            broadcastData({ type: 'queue-clear' })
+
+            if (isHost) {
+                supabase.from('rooms').update({ queue: [] }).eq('id', id).then()
+            }
+        }
+    }
+
     const handlePasswordSubmit = (e) => {
         e.preventDefault()
         if (room.password_hash === passwordInput) {
@@ -702,6 +786,33 @@ export default function Room() {
             }
             return newSet
         })
+    }
+
+    const handleDeleteFromPlaylistPreview = (videoId) => {
+        setPlaylistData(prev => {
+            if (!prev) return null
+            return {
+                ...prev,
+                videos: prev.videos.filter(v => v.id !== videoId)
+            }
+        })
+        setSelectedSongs(prev => {
+            const next = new Set(prev)
+            next.delete(videoId)
+            return next
+        })
+    }
+
+    const handleDeleteSelectedFromPlaylistPreview = () => {
+        if (!playlistData || selectedSongs.size === 0) return
+        setPlaylistData(prev => {
+            if (!prev) return null
+            return {
+                ...prev,
+                videos: prev.videos.filter(v => !selectedSongs.has(v.id))
+            }
+        })
+        setSelectedSongs(new Set())
     }
 
     const handleImportSelected = () => {
@@ -1269,33 +1380,157 @@ export default function Room() {
                         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                             {/* QUEUE TAB */}
                             {queueTab === 'queue' && (
-                                <div style={{ flex: 1, overflowY: 'visible', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                    {/* Queue Management Toolbar */}
+                                    {queue.length > 0 && (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '0.75rem', borderBottom: '1px solid hsla(var(--border)/0.5)', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                            <div style={{ fontSize: '0.85rem', color: 'hsl(var(--text-muted))', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                                <span>{queue.length} {queue.length === 1 ? 'song' : 'songs'}</span>
+                                                {isQueueSelectMode && selectedQueueItems.size > 0 && (
+                                                    <span style={{ color: 'hsl(var(--primary))', fontWeight: 'bold' }}>
+                                                        • {selectedQueueItems.size} selected
+                                                    </span>
+                                                )}
+                                            </div>
+
+                                            {hasRemote && (
+                                                <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                                    {isQueueSelectMode ? (
+                                                        <>
+                                                            <button
+                                                                className="btn btn-ghost"
+                                                                style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem', minHeight: '32px' }}
+                                                                onClick={() => {
+                                                                    if (selectedQueueItems.size === queue.length) {
+                                                                        setSelectedQueueItems(new Set())
+                                                                    } else {
+                                                                        const allKeys = new Set(queue.map((v, i) => v.queueItemId || `${v.id}-${i}`))
+                                                                        setSelectedQueueItems(allKeys)
+                                                                    }
+                                                                }}
+                                                            >
+                                                                {selectedQueueItems.size === queue.length ? 'Deselect All' : 'Select All'}
+                                                            </button>
+
+                                                            <button
+                                                                className="btn btn-primary"
+                                                                style={{ padding: '0.3rem 0.75rem', fontSize: '0.8rem', minHeight: '32px', background: 'hsl(var(--error))', boxShadow: 'none' }}
+                                                                disabled={selectedQueueItems.size === 0}
+                                                                onClick={() => handleDeleteQueueItems(selectedQueueItems)}
+                                                                title="Delete selected songs from queue"
+                                                            >
+                                                                <Trash2 size={14} /> Delete ({selectedQueueItems.size})
+                                                            </button>
+
+                                                            <button
+                                                                className="btn btn-ghost"
+                                                                style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem', minHeight: '32px' }}
+                                                                onClick={() => {
+                                                                    setIsQueueSelectMode(false)
+                                                                    setSelectedQueueItems(new Set())
+                                                                }}
+                                                            >
+                                                                Done
+                                                            </button>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <button
+                                                                className="btn btn-ghost"
+                                                                style={{ padding: '0.3rem 0.65rem', fontSize: '0.8rem', minHeight: '32px', border: '1px solid hsla(var(--border)/0.5)' }}
+                                                                onClick={() => setIsQueueSelectMode(true)}
+                                                                title="Select entries to delete"
+                                                            >
+                                                                <CheckSquare size={14} /> Select
+                                                            </button>
+                                                            <button
+                                                                className="btn btn-ghost"
+                                                                style={{ padding: '0.3rem 0.65rem', fontSize: '0.8rem', minHeight: '32px', color: 'hsl(var(--error))' }}
+                                                                onClick={handleClearQueue}
+                                                                title="Clear entire queue"
+                                                            >
+                                                                <Trash2 size={14} /> Clear
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Queue Items */}
                                     {queue.map((video, i) => {
                                         const isCurrent = currentVideo && currentVideo.id === video.id
+                                        const itemKey = video.queueItemId || `${video.id}-${i}`
+                                        const isSelected = selectedQueueItems.has(itemKey)
+
                                         return (
                                             <div
-                                                key={`${video.id}-${i}`}
-                                                onClick={() => hasRemote && playVideo(video)}
+                                                key={itemKey}
+                                                onClick={() => {
+                                                    if (isQueueSelectMode) {
+                                                        setSelectedQueueItems(prev => {
+                                                            const next = new Set(prev)
+                                                            if (next.has(itemKey)) next.delete(itemKey)
+                                                            else next.add(itemKey)
+                                                            return next
+                                                        })
+                                                    } else if (hasRemote) {
+                                                        playVideo(video)
+                                                    }
+                                                }}
                                                 style={{
-                                                    display: 'flex', gap: '1rem', alignItems: 'center', padding: '0.5rem',
+                                                    display: 'flex', gap: '0.75rem', alignItems: 'center', padding: '0.5rem',
                                                     borderRadius: '8px',
-                                                    background: isCurrent ? 'hsla(var(--primary)/0.1)' : 'transparent',
-                                                    border: isCurrent ? '1px solid hsl(var(--primary))' : '1px solid transparent',
+                                                    background: isSelected ? 'hsla(var(--primary)/0.15)' : (isCurrent ? 'hsla(var(--primary)/0.1)' : 'transparent'),
+                                                    border: isSelected ? '1px solid hsl(var(--primary))' : (isCurrent ? '1px solid hsl(var(--primary))' : '1px solid transparent'),
                                                     cursor: hasRemote ? 'pointer' : 'default',
-                                                    opacity: isCurrent ? 1 : 0.7,
-                                                    transition: 'background-color 0.2s ease, border-color 0.2s ease, opacity 0.2s ease'
+                                                    opacity: isCurrent || isSelected ? 1 : 0.8,
+                                                    transition: 'all 0.15s ease'
                                                 }}
                                                 className="queue-item"
                                             >
-                                                {isCurrent && <div style={{ position: 'absolute', left: '1.5rem', color: 'hsl(var(--primary))' }}><Play size={12} fill="currentColor" /></div>}
+                                                {isQueueSelectMode ? (
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isSelected}
+                                                        onChange={() => { }} // Handled by parent div onClick
+                                                        style={{ width: '18px', height: '18px', cursor: 'pointer', flexShrink: 0 }}
+                                                    />
+                                                ) : (
+                                                    isCurrent && (
+                                                        <div style={{ color: 'hsl(var(--primary))', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+                                                            <Play size={12} fill="currentColor" />
+                                                        </div>
+                                                    )
+                                                )}
 
-                                                <div style={{ width: '40px', height: '40px', background: 'black', borderRadius: '4px', overflow: 'hidden', flexShrink: 0, marginLeft: isCurrent ? '1rem' : 0 }}>
-                                                    <img src={video.thumbnail} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                <div style={{ width: '40px', height: '40px', background: 'black', borderRadius: '4px', overflow: 'hidden', flexShrink: 0 }}>
+                                                    <img src={video.thumbnail} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
                                                 </div>
-                                                <div style={{ minWidth: 0 }}>
-                                                    <div title={video.title} style={{ fontWeight: '600', fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: isCurrent ? 'hsl(var(--primary))' : 'inherit' }}>{video.title}</div>
-                                                    <div style={{ fontSize: '0.8rem', opacity: 0.5 }}>{video.channel}</div>
+
+                                                <div style={{ minWidth: 0, flex: 1 }}>
+                                                    <div title={video.title} style={{ fontWeight: '600', fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: isCurrent ? 'hsl(var(--primary))' : 'inherit' }}>
+                                                        {video.title}
+                                                    </div>
+                                                    <div style={{ fontSize: '0.8rem', opacity: 0.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                        {video.channel}
+                                                    </div>
                                                 </div>
+
+                                                {hasRemote && !isQueueSelectMode && (
+                                                    <button
+                                                        className="btn btn-ghost"
+                                                        style={{ padding: '0.35rem', minHeight: '30px', color: 'hsl(var(--text-muted))', flexShrink: 0 }}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            handleDeleteSingleQueueItem(video, i)
+                                                        }}
+                                                        title="Remove from queue"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                )}
                                             </div>
                                         )
                                     })}
@@ -1350,24 +1585,33 @@ export default function Room() {
                                     {/* Playlist Preview */}
                                     {playlistData && (
                                         <>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0', borderBottom: '1px solid hsl(var(--border))' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0', borderBottom: '1px solid hsl(var(--border))', flexWrap: 'wrap', gap: '0.5rem' }}>
                                                 <div>
                                                     <h4 style={{ fontSize: '1rem', marginBottom: '0.25rem' }}>{playlistData.title}</h4>
                                                     <p style={{ fontSize: '0.8rem', opacity: 0.7 }}>{playlistData.videos.length} songs</p>
                                                 </div>
-                                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
                                                     <button
                                                         className="btn btn-ghost"
                                                         onClick={() => setSelectedSongs(selectedSongs.size === playlistData.videos.length ? new Set() : new Set(playlistData.videos.map(v => v.id)))}
-                                                        style={{ padding: '0.5rem', fontSize: '0.8rem' }}
+                                                        style={{ padding: '0.35rem 0.65rem', fontSize: '0.8rem', minHeight: '32px' }}
                                                     >
                                                         {selectedSongs.size === playlistData.videos.length ? 'Deselect All' : 'Select All'}
+                                                    </button>
+                                                    <button
+                                                        className="btn btn-ghost"
+                                                        onClick={handleDeleteSelectedFromPlaylistPreview}
+                                                        disabled={selectedSongs.size === 0}
+                                                        style={{ padding: '0.35rem 0.65rem', fontSize: '0.8rem', minHeight: '32px', color: 'hsl(var(--error))' }}
+                                                        title="Remove selected songs from list"
+                                                    >
+                                                        <Trash2 size={14} /> Remove ({selectedSongs.size})
                                                     </button>
                                                     <button
                                                         className="btn btn-primary"
                                                         onClick={handleImportSelected}
                                                         disabled={selectedSongs.size === 0}
-                                                        style={{ padding: '0.5rem 1rem', fontSize: '0.9rem' }}
+                                                        style={{ padding: '0.35rem 0.85rem', fontSize: '0.85rem', minHeight: '32px' }}
                                                     >
                                                         Import {selectedSongs.size > 0 ? `(${selectedSongs.size})` : ''}
                                                     </button>
@@ -1399,7 +1643,7 @@ export default function Room() {
                                                                 type="checkbox"
                                                                 checked={isSelected}
                                                                 onChange={() => { }} // Handled by parent div onClick
-                                                                style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                                                                style={{ cursor: 'pointer', width: '16px', height: '16px', flexShrink: 0 }}
                                                             />
 
                                                             {/* Thumbnail */}
@@ -1414,6 +1658,18 @@ export default function Room() {
                                                                 </div>
                                                                 <div style={{ fontSize: '0.8rem', opacity: 0.5 }}>{video.channel}</div>
                                                             </div>
+
+                                                            <button
+                                                                className="btn btn-ghost"
+                                                                style={{ padding: '0.35rem', minHeight: '30px', color: 'hsl(var(--text-muted))', flexShrink: 0 }}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation()
+                                                                    handleDeleteFromPlaylistPreview(video.id)
+                                                                }}
+                                                                title="Remove from list"
+                                                            >
+                                                                <Trash2 size={16} />
+                                                            </button>
                                                         </div>
                                                     )
                                                 })}
