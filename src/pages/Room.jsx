@@ -1093,6 +1093,8 @@ export default function Room() {
                     grid-template-columns: 1fr 340px;
                     align-items: start;
                     gap: 1.5rem;
+                    width: 100%;
+                    box-sizing: border-box;
                 }
                 .room-mobile-tabs {
                     display: none !important;
@@ -1103,6 +1105,8 @@ export default function Room() {
                     display: flex;
                     flex-direction: column;
                     min-height: 550px;
+                    width: 100%;
+                    box-sizing: border-box;
                 }
                 .room-right-col {
                     display: flex;
@@ -1112,62 +1116,92 @@ export default function Room() {
                     overflow: hidden;
                     position: sticky;
                     top: 2rem;
+                    width: 100%;
+                    box-sizing: border-box;
                 }
                 
                 @media (max-width: 900px) {
                     .room-layout {
-                        display: flex;
-                        flex-direction: column;
+                        display: flex !important;
+                        flex-direction: column !important;
+                        align-items: stretch !important;
                         height: auto !important;
                         overflow-y: visible !important;
-                        gap: 1rem;
+                        gap: 0.85rem !important;
                         padding: 0.5rem 0.5rem 1.5rem 0.5rem !important;
+                        width: 100% !important;
+                        max-width: 100% !important;
+                        box-sizing: border-box !important;
+                    }
+                    .room-layout > * {
+                        width: 100% !important;
+                        max-width: 100% !important;
+                        min-width: 0 !important;
+                        box-sizing: border-box !important;
                     }
                     .room-mobile-tabs {
                         display: flex !important;
-                        gap: 0.4rem;
+                        gap: 0.35rem;
                         background: hsla(var(--surface)/0.9);
-                        padding: 0.3rem;
+                        padding: 0.25rem;
                         border-radius: var(--radius-md);
                         border: 1px solid hsl(var(--border));
-                        width: 100%;
-                        box-sizing: border-box;
+                        width: 100% !important;
+                        max-width: 100% !important;
+                        box-sizing: border-box !important;
                     }
                     .room-mobile-tab-btn {
-                        flex: 1;
-                        padding: 0.5rem 0.25rem !important;
+                        flex: 1 1 0 !important;
+                        min-width: 0 !important;
+                        padding: 0.5rem 0.2rem !important;
                         min-height: 38px !important;
-                        font-size: 0.85rem !important;
+                        font-size: 0.8rem !important;
                         border-radius: var(--radius-sm) !important;
                         display: flex;
                         align-items: center;
                         justify-content: center;
-                        gap: 0.35rem;
+                        gap: 0.25rem;
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                    }
+                    .room-mobile-tab-btn span {
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
                     }
                     .tab-badge {
                         background: hsl(var(--primary));
                         color: white;
-                        font-size: 0.7rem;
-                        padding: 0.1rem 0.4rem;
+                        font-size: 0.65rem;
+                        padding: 0.1rem 0.35rem;
                         border-radius: var(--radius-full);
                         line-height: 1;
+                        flex-shrink: 0;
                     }
                     .tab-badge-warning {
                         background: #f59e0b;
                         color: black;
-                        font-size: 0.7rem;
+                        font-size: 0.65rem;
                         font-weight: bold;
-                        padding: 0.1rem 0.4rem;
+                        padding: 0.1rem 0.35rem;
                         border-radius: var(--radius-full);
                         line-height: 1;
+                        flex-shrink: 0;
                     }
                     .room-queue-card {
                         min-height: 380px !important;
+                        width: 100% !important;
+                        max-width: 100% !important;
+                        box-sizing: border-box !important;
                     }
                     .room-right-col {
                         height: 480px !important;
                         position: static !important;
                         top: auto !important;
+                        width: 100% !important;
+                        max-width: 100% !important;
+                        box-sizing: border-box !important;
                     }
                     .mobile-hidden-section {
                         display: none !important;
@@ -1176,11 +1210,18 @@ export default function Room() {
                         display: none;
                     }
                     .btn-mobile-compact {
-                        padding: 0.4rem !important;
+                        padding: 0.35rem !important;
                         min-height: 36px !important;
+                        width: 36px !important;
+                        flex-shrink: 0 !important;
+                        justify-content: center !important;
+                    }
+                    .room-header {
+                        flex-wrap: wrap;
+                        gap: 0.5rem !important;
                     }
                     .room-header h2 {
-                        font-size: 1.2rem !important;
+                        font-size: 1.15rem !important;
                     }
                 }
             `}</style>
@@ -1209,8 +1250,8 @@ export default function Room() {
                 )}
 
                 {/* Left Column - Natural Height */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: 0, minWidth: 0, flex: 1 }}>
-                    <header className="room-header" style={{ marginBottom: '0.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: 0, minWidth: 0, flex: 1, width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
+                    <header className="room-header" style={{ marginBottom: '0.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', width: '100%', minWidth: 0, boxSizing: 'border-box' }}>
                         <div style={{ minWidth: 0, flex: 1 }}>
                             <h2 style={{ fontSize: 'clamp(1.15rem, 3.5vw, 1.5rem)', marginBottom: '0.2rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{room?.name}</h2>
                             <p className="text-muted" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.85rem' }} onClick={() => setShowDebug(!showDebug)}>
@@ -1337,12 +1378,13 @@ export default function Room() {
                     {/* Queue List with Tabs */}
                     <div className={`glass-card room-queue-card ${mobileTab !== 'queue' ? 'mobile-hidden-section' : ''}`}>
                         {/* Queue Tabs Header */}
-                        <div style={{ display: 'flex', borderBottom: '1px solid hsl(var(--border))' }}>
+                        <div style={{ display: 'flex', borderBottom: '1px solid hsl(var(--border))', width: '100%', boxSizing: 'border-box' }}>
                             <button
                                 onClick={() => setQueueTab('queue')}
                                 style={{
-                                    flex: 1,
-                                    padding: '1rem',
+                                    flex: '1 1 0',
+                                    minWidth: 0,
+                                    padding: '0.75rem 0.5rem',
                                     background: queueTab === 'queue' ? 'hsl(var(--surface))' : 'transparent',
                                     border: 'none',
                                     color: queueTab === 'queue' ? 'white' : 'grey',
@@ -1350,17 +1392,19 @@ export default function Room() {
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    gap: '0.5rem',
-                                    fontWeight: 'bold'
+                                    gap: '0.4rem',
+                                    fontWeight: 'bold',
+                                    fontSize: '0.9rem'
                                 }}
                             >
-                                <ListMusic size={18} /> Queue
+                                <ListMusic size={18} style={{ flexShrink: 0 }} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Queue</span>
                             </button>
                             <button
                                 onClick={() => setQueueTab('playlists')}
                                 style={{
-                                    flex: 1,
-                                    padding: '1rem',
+                                    flex: '1 1 0',
+                                    minWidth: 0,
+                                    padding: '0.75rem 0.5rem',
                                     background: queueTab === 'playlists' ? 'hsl(var(--surface))' : 'transparent',
                                     border: 'none',
                                     color: queueTab === 'playlists' ? 'white' : 'grey',
@@ -1368,11 +1412,12 @@ export default function Room() {
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    gap: '0.5rem',
-                                    fontWeight: 'bold'
+                                    gap: '0.4rem',
+                                    fontWeight: 'bold',
+                                    fontSize: '0.9rem'
                                 }}
                             >
-                                <Music size={18} /> Playlists
+                                <Music size={18} style={{ flexShrink: 0 }} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Playlists</span>
                             </button>
                         </div>
 
@@ -1486,7 +1531,11 @@ export default function Room() {
                                                     border: isSelected ? '1px solid hsl(var(--primary))' : (isCurrent ? '1px solid hsl(var(--primary))' : '1px solid transparent'),
                                                     cursor: hasRemote ? 'pointer' : 'default',
                                                     opacity: isCurrent || isSelected ? 1 : 0.8,
-                                                    transition: 'all 0.15s ease'
+                                                    transition: 'all 0.15s ease',
+                                                    width: '100%',
+                                                    maxWidth: '100%',
+                                                    minWidth: 0,
+                                                    boxSizing: 'border-box'
                                                 }}
                                                 className="queue-item"
                                             >
@@ -1509,7 +1558,7 @@ export default function Room() {
                                                     <img src={video.thumbnail} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
                                                 </div>
 
-                                                <div style={{ minWidth: 0, flex: 1 }}>
+                                                <div style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
                                                     <div title={video.title} style={{ fontWeight: '600', fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: isCurrent ? 'hsl(var(--primary))' : 'inherit' }}>
                                                         {video.title}
                                                     </div>
@@ -1635,7 +1684,11 @@ export default function Room() {
                                                                 background: isSelected ? 'hsla(var(--primary)/0.1)' : 'transparent',
                                                                 border: isSelected ? '1px solid hsl(var(--primary))' : '1px solid transparent',
                                                                 cursor: 'pointer',
-                                                                transition: 'background-color 0.2s ease, border-color 0.2s ease'
+                                                                transition: 'background-color 0.2s ease, border-color 0.2s ease',
+                                                                width: '100%',
+                                                                maxWidth: '100%',
+                                                                minWidth: 0,
+                                                                boxSizing: 'border-box'
                                                             }}
                                                         >
                                                             {/* Checkbox */}
@@ -1652,11 +1705,11 @@ export default function Room() {
                                                             </div>
 
                                                             {/* Title & Channel */}
-                                                            <div style={{ minWidth: 0, flex: 1 }}>
+                                                            <div style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
                                                                 <div title={video.title} style={{ fontWeight: '600', fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                                                     {video.title}
                                                                 </div>
-                                                                <div style={{ fontSize: '0.8rem', opacity: 0.5 }}>{video.channel}</div>
+                                                                <div style={{ fontSize: '0.8rem', opacity: 0.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{video.channel}</div>
                                                             </div>
 
                                                             <button
@@ -1686,25 +1739,25 @@ export default function Room() {
                 <div className={`glass-card room-right-col ${mobileTab === 'queue' ? 'mobile-hidden-section' : ''}`}>
 
                     {/* Tabs Header */}
-                    <div style={{ display: 'flex', borderBottom: '1px solid hsl(var(--border))' }}>
+                    <div style={{ display: 'flex', borderBottom: '1px solid hsl(var(--border))', width: '100%', boxSizing: 'border-box' }}>
                         <button
                             onClick={() => {
                                 setActiveTab('chat')
                                 setMobileTab('chat')
                                 setUnreadChatCount(0)
                             }}
-                            style={{ flex: 1, padding: '0.85rem', background: activeTab === 'chat' ? 'hsl(var(--surface))' : 'transparent', border: 'none', color: activeTab === 'chat' ? 'white' : 'grey', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontWeight: 'bold' }}
+                            style={{ flex: '1 1 0', minWidth: 0, padding: '0.75rem 0.5rem', background: activeTab === 'chat' ? 'hsl(var(--surface))' : 'transparent', border: 'none', color: activeTab === 'chat' ? 'white' : 'grey', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', fontWeight: 'bold', fontSize: '0.9rem' }}
                         >
-                            <MessageCircle size={18} /> Chat {unreadChatCount > 0 && <span className="tab-badge">{unreadChatCount}</span>}
+                            <MessageCircle size={18} style={{ flexShrink: 0 }} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Chat</span> {unreadChatCount > 0 && <span className="tab-badge">{unreadChatCount}</span>}
                         </button>
                         <button
                             onClick={() => {
                                 setActiveTab('users')
                                 setMobileTab('users')
                             }}
-                            style={{ flex: 1, padding: '0.85rem', background: activeTab === 'users' ? 'hsl(var(--surface))' : 'transparent', border: 'none', color: activeTab === 'users' ? 'white' : 'grey', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontWeight: 'bold' }}
+                            style={{ flex: '1 1 0', minWidth: 0, padding: '0.75rem 0.5rem', background: activeTab === 'users' ? 'hsl(var(--surface))' : 'transparent', border: 'none', color: activeTab === 'users' ? 'white' : 'grey', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', fontWeight: 'bold', fontSize: '0.9rem' }}
                         >
-                            <Users size={18} /> Users
+                            <Users size={18} style={{ flexShrink: 0 }} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Users</span>
                         </button>
                     </div>
 
@@ -1724,8 +1777,8 @@ export default function Room() {
                                         </div>
                                     ))}
                                 </div>
-                                <form onSubmit={handleSendMessage} style={{ padding: '0.75rem 1rem', borderTop: '1px solid hsl(var(--border))', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                    <input className="input" value={newMessage} onChange={e => setNewMessage(e.target.value)} placeholder="Type a message..." style={{ padding: '0.5rem 0.75rem', minHeight: '38px', flex: 1 }} />
+                                <form onSubmit={handleSendMessage} style={{ padding: '0.75rem 1rem', borderTop: '1px solid hsl(var(--border))', display: 'flex', gap: '0.5rem', alignItems: 'center', width: '100%', boxSizing: 'border-box' }}>
+                                    <input className="input" value={newMessage} onChange={e => setNewMessage(e.target.value)} placeholder="Type a message..." style={{ padding: '0.5rem 0.75rem', minHeight: '38px', flex: 1, minWidth: 0 }} />
                                     <button type="submit" className="btn btn-primary" style={{ padding: '0.5rem 1rem', minHeight: '38px', flexShrink: 0 }}><Send size={18} /></button>
                                 </form>
                             </>
