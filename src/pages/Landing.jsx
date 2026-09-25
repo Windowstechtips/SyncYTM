@@ -16,34 +16,58 @@ export default function Landing() {
     }, [user, navigate]);
 
     return (
-        <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ minHeight: '100vh', minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
+            <style>{`
+                .landing-hero-actions {
+                    display: flex;
+                    gap: 1rem;
+                    justify-content: center;
+                    align-items: center;
+                    flex-wrap: wrap;
+                }
+                @media (max-width: 640px) {
+                    .landing-hero-actions {
+                        flex-direction: column;
+                        width: 100%;
+                    }
+                    .landing-hero-actions .btn {
+                        width: 100%;
+                        max-width: 320px;
+                    }
+                    .landing-nav-btns .btn {
+                        padding: 0.5rem 0.8rem;
+                        font-size: 0.875rem;
+                    }
+                }
+            `}</style>
+
             {/* Navbar */}
-            <nav className="container" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem 1rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '1.5rem', fontWeight: 'bold' }}>
-                    <Music color="hsl(var(--primary))" size={28} />
+            <nav className="container" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.25rem 1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '1.4rem', fontWeight: 'bold' }}>
+                    <Music color="hsl(var(--primary))" size={26} />
                     <span>SyncYTM</span>
                 </div>
-                <div>
+                <div className="landing-nav-btns" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <button className="btn btn-ghost" onClick={() => navigate('/auth')}>Log In</button>
-                    <button className="btn btn-primary" onClick={() => navigate('/auth')} style={{ marginLeft: '1rem' }}>Get Started</button>
+                    <button className="btn btn-primary" onClick={() => navigate('/auth')}>Get Started</button>
                 </div>
             </nav>
 
             {/* Hero Section */}
-            <header className="container" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center', padding: '4rem 1rem 6rem' }}>
-                <div className="animate-fade-in">
-                    <h1 style={{ fontSize: 'clamp(2.5rem, 5vw, 4.5rem)', lineHeight: 1.1, marginBottom: '1.5rem', fontWeight: 800 }}>
+            <header className="container" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center', padding: '3rem 1rem 4rem' }}>
+                <div className="animate-fade-in" style={{ width: '100%', maxWidth: '800px' }}>
+                    <h1 style={{ fontSize: 'clamp(2.2rem, 7vw, 4.5rem)', lineHeight: 1.15, marginBottom: '1.5rem', fontWeight: 800 }}>
                         Experience Music <br />
                         <span style={{ color: 'hsl(var(--primary))', textShadow: '0 0 30px hsla(var(--primary)/0.4)' }}>Together, Anywhere.</span>
                     </h1>
-                    <p className="text-muted" style={{ fontSize: '1.25rem', maxWidth: '600px', margin: '0 auto 2.5rem' }}>
+                    <p className="text-muted" style={{ fontSize: 'clamp(1rem, 3vw, 1.25rem)', maxWidth: '600px', margin: '0 auto 2.5rem' }}>
                         Stream YouTube Music in perfect sync with friends. High quality audio, real-time chat, and seamless remote control.
                     </p>
-                    <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-                        <button className="btn btn-primary" style={{ padding: '1rem 2.5rem', fontSize: '1.1rem' }} onClick={() => navigate('/auth')}>
+                    <div className="landing-hero-actions">
+                        <button className="btn btn-primary" style={{ padding: '0.9rem 2rem', fontSize: '1.05rem' }} onClick={() => navigate('/auth')}>
                             Start Listening Now <Play size={20} fill="currentColor" />
                         </button>
-                        <button className="btn btn-ghost" style={{ padding: '1rem 2.5rem', fontSize: '1.1rem', border: '1px solid hsl(var(--border))' }} onClick={() => document.getElementById('features').scrollIntoView({ behavior: 'smooth' })}>
+                        <button className="btn btn-ghost" style={{ padding: '0.9rem 2rem', fontSize: '1.05rem', border: '1px solid hsl(var(--border))' }} onClick={() => document.getElementById('features').scrollIntoView({ behavior: 'smooth' })}>
                             Learn More
                         </button>
                     </div>
@@ -51,10 +75,10 @@ export default function Landing() {
             </header>
 
             {/* Features Grid */}
-            <section id="features" style={{ background: 'hsl(var(--surface))', padding: '5rem 0' }}>
-                <div className="container">
-                    <h2 style={{ textAlign: 'center', fontSize: '2.5rem', marginBottom: '3rem' }}>Why SyncYTM?</h2>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '2rem' }}>
+            <section id="features" style={{ background: 'hsl(var(--surface))', padding: '4rem 1rem' }}>
+                <div className="container" style={{ padding: 0 }}>
+                    <h2 style={{ textAlign: 'center', fontSize: 'clamp(1.75rem, 5vw, 2.5rem)', marginBottom: '2.5rem' }}>Why SyncYTM?</h2>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: '1.5rem' }}>
                         <FeatureCard
                             icon={<Zap size={32} color="hsl(var(--primary))" />}
                             title="Instant Sync"

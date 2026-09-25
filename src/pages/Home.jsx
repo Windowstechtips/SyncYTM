@@ -154,37 +154,41 @@ export default function Home() {
     return (
         <div style={{
             minHeight: '100vh',
+            minHeight: '100dvh',
             width: '100%',
             background: 'radial-gradient(circle at top right, hsl(var(--primary) / 0.35), transparent 50%), radial-gradient(circle at bottom left, hsl(var(--secondary) / 0.1), transparent 50%)',
             display: 'flex', flexDirection: 'column'
         }}>
             <div className="container" style={{
-                paddingTop: '2rem',
+                paddingTop: '1.5rem',
                 paddingBottom: '2rem',
                 flex: 1,
-                width: '100%', // Ensure it takes available width up to max-width
+                width: '100%',
+                boxSizing: 'border-box'
             }}>
-                <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3rem' }}>
-                    <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '2rem' }}>
+                <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+                    <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'clamp(1.5rem, 4vw, 2rem)' }}>
                         <Music color="hsl(var(--primary))" /> SyncYTM
                     </h1>
-                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <span style={{ color: 'hsl(var(--text-muted))' }}>{user.user_metadata?.username || user.email}</span>
-                            <button className="btn btn-ghost" style={{ padding: '0.2rem' }} onClick={() => { setNewUsername(user.user_metadata?.username || ''); setShowProfileModal(true) }}>
+                    <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', maxWidth: '220px' }}>
+                            <span style={{ color: 'hsl(var(--text-muted))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.9rem' }}>
+                                {user.user_metadata?.username || user.email}
+                            </span>
+                            <button className="btn btn-ghost" style={{ padding: '0.3rem', minHeight: '32px' }} onClick={() => { setNewUsername(user.user_metadata?.username || ''); setShowProfileModal(true) }} title="Edit username">
                                 <Edit2 size={14} />
                             </button>
                         </div>
-                        <button className="btn btn-ghost" onClick={signOut}>Log Out</button>
+                        <button className="btn btn-ghost" style={{ padding: '0.4rem 0.8rem', minHeight: '36px', fontSize: '0.9rem' }} onClick={signOut}>Log Out</button>
                     </div>
                 </header>
 
                 {/* My Rooms Section */}
                 <div style={{ marginBottom: '3rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                        <h2 style={{ fontSize: '1.5rem' }}>My Rooms</h2>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+                        <h2 style={{ fontSize: 'clamp(1.25rem, 3vw, 1.5rem)' }}>My Rooms</h2>
                         <button className="btn btn-primary" onClick={() => { resetForm(); setShowCreateModal(true) }}>
-                            <Plus size={20} /> Create Room
+                            <Plus size={18} /> Create Room
                         </button>
                     </div>
 
@@ -193,26 +197,26 @@ export default function Home() {
                             <p>You haven't created any rooms yet.</p>
                         </div>
                     ) : (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: '1.25rem' }}>
                             {myRooms.map(room => (
-                                <div key={room.id} className="glass-card" style={{ padding: '1.5rem', transition: 'all 0.2s', position: 'relative' }}>
+                                <div key={room.id} className="glass-card" style={{ padding: '1.25rem', transition: 'all 0.2s', position: 'relative' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem', cursor: 'pointer' }} onClick={() => navigate(`/room/${room.id}`)}>
-                                        <h3 style={{ fontSize: '1.25rem', fontWeight: '600' }}>{room.name}</h3>
-                                        {room.is_private && <Lock size={16} color="hsl(var(--text-muted))" />}
+                                        <h3 style={{ fontSize: '1.2rem', fontWeight: '600', wordBreak: 'break-word', paddingRight: '0.5rem' }}>{room.name}</h3>
+                                        {room.is_private && <Lock size={16} color="hsl(var(--text-muted))" style={{ flexShrink: 0 }} />}
                                     </div>
 
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem' }}>
-                                        <div style={{ display: 'flex', gap: '0.5rem', fontSize: '0.8rem', color: 'hsl(var(--text-muted))' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                        <div style={{ display: 'flex', gap: '0.5rem', fontSize: '0.85rem', color: 'hsl(var(--text-muted))', alignItems: 'center' }}>
                                             <Users size={14} /> {roomCounts[room.id] || 0}
                                         </div>
-                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                            <button className="btn btn-ghost" style={{ padding: '0.4rem' }} onClick={(e) => { e.stopPropagation(); openEditModal(room) }} title="Edit">
+                                        <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                                            <button className="btn btn-ghost" style={{ padding: '0.4rem', minHeight: '36px' }} onClick={(e) => { e.stopPropagation(); openEditModal(room) }} title="Edit">
                                                 <Edit2 size={16} />
                                             </button>
-                                            <button className="btn btn-ghost" style={{ padding: '0.4rem', color: 'hsl(var(--destructive))' }} onClick={(e) => { e.stopPropagation(); confirmDelete(room.id) }} title="Delete">
+                                            <button className="btn btn-ghost" style={{ padding: '0.4rem', minHeight: '36px', color: 'hsl(var(--destructive))' }} onClick={(e) => { e.stopPropagation(); confirmDelete(room.id) }} title="Delete">
                                                 <Trash2 size={16} />
                                             </button>
-                                            <button className="btn btn-ghost" style={{ padding: '0.4rem 0.8rem', fontSize: '0.9rem' }} onClick={() => navigate(`/room/${room.id}`)}>
+                                            <button className="btn btn-ghost" style={{ padding: '0.4rem 0.8rem', minHeight: '36px', fontSize: '0.9rem' }} onClick={() => navigate(`/room/${room.id}`)}>
                                                 Enter <Play size={14} style={{ marginLeft: '4px' }} />
                                             </button>
                                         </div>
@@ -225,19 +229,19 @@ export default function Home() {
 
                 {/* Active Rooms Section */}
                 <div style={{ marginBottom: '2rem' }}>
-                    <h2 style={{ fontSize: '1.5rem', marginBottom: '1.5rem' }}>Active Public Rooms</h2>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem' }}>
+                    <h2 style={{ fontSize: 'clamp(1.25rem, 3vw, 1.5rem)', marginBottom: '1.5rem' }}>Active Public Rooms</h2>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: '1.25rem' }}>
                         {activeRooms.filter(r => r.host_id !== user.id && (roomCounts[r.id] > 0)).map(room => (
-                            <div key={room.id} className="glass-card" style={{ padding: '1.5rem', transition: 'all 0.2s', cursor: 'pointer' }} onClick={() => navigate(`/room/${room.id}`)}>
+                            <div key={room.id} className="glass-card" style={{ padding: '1.25rem', transition: 'all 0.2s', cursor: 'pointer' }} onClick={() => navigate(`/room/${room.id}`)}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-                                    <h3 style={{ fontSize: '1.25rem', fontWeight: '600' }}>{room.name}</h3>
-                                    {room.is_private && <Lock size={16} color="hsl(var(--text-muted))" />}
+                                    <h3 style={{ fontSize: '1.2rem', fontWeight: '600', wordBreak: 'break-word', paddingRight: '0.5rem' }}>{room.name}</h3>
+                                    {room.is_private && <Lock size={16} color="hsl(var(--text-muted))" style={{ flexShrink: 0 }} />}
                                 </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <div style={{ display: 'flex', gap: '0.5rem', fontSize: '0.9rem', color: 'hsl(var(--primary))' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                    <div style={{ display: 'flex', gap: '0.5rem', fontSize: '0.85rem', color: 'hsl(var(--primary))', alignItems: 'center' }}>
                                         <Users size={16} /> {roomCounts[room.id] || 0} Active
                                     </div>
-                                    <button className="btn btn-ghost" style={{ padding: '0.5rem 1rem', fontSize: '0.9rem' }}>
+                                    <button className="btn btn-ghost" style={{ padding: '0.4rem 0.8rem', minHeight: '36px', fontSize: '0.9rem' }}>
                                         Join <Play size={14} style={{ marginLeft: '4px' }} />
                                     </button>
                                 </div>
@@ -257,10 +261,11 @@ export default function Home() {
                     (showCreateModal || showEditModal) && (
                         <div style={{
                             position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
+                            padding: '1rem', boxSizing: 'border-box'
                         }}>
-                            <div className="glass-card animate-fade-in" style={{ width: '400px', background: 'hsl(var(--surface))' }}>
-                                <h2 style={{ marginBottom: '1.5rem' }}>{showEditModal ? 'Edit Room' : 'Create a Room'}</h2>
+                            <div className="glass-card animate-fade-in" style={{ width: '100%', maxWidth: '420px', background: 'hsl(var(--surface))' }}>
+                                <h2 style={{ marginBottom: '1.5rem', fontSize: '1.35rem' }}>{showEditModal ? 'Edit Room' : 'Create a Room'}</h2>
                                 <form onSubmit={showEditModal ? updateRoom : createRoom}>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                                         <div>
@@ -274,9 +279,9 @@ export default function Home() {
                                                 id="isPrivate"
                                                 checked={isPrivate}
                                                 onChange={e => setIsPrivate(e.target.checked)}
-                                                style={{ width: 'auto' }}
+                                                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
                                             />
-                                            <label htmlFor="isPrivate">Private Room (Password protected)</label>
+                                            <label htmlFor="isPrivate" style={{ cursor: 'pointer', fontSize: '0.95rem' }}>Private Room (Password protected)</label>
                                         </div>
 
                                         {isPrivate && (
@@ -301,10 +306,11 @@ export default function Home() {
                 {showProfileModal && (
                     <div style={{
                         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
+                        padding: '1rem', boxSizing: 'border-box'
                     }}>
-                        <div className="glass-card animate-fade-in" style={{ width: '400px', background: 'hsl(var(--surface))' }}>
-                            <h2 style={{ marginBottom: '1.5rem' }}>Update Profile</h2>
+                        <div className="glass-card animate-fade-in" style={{ width: '100%', maxWidth: '420px', background: 'hsl(var(--surface))' }}>
+                            <h2 style={{ marginBottom: '1.5rem', fontSize: '1.35rem' }}>Update Profile</h2>
                             <form onSubmit={updateProfile}>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                                     <div>

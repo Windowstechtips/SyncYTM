@@ -20,54 +20,78 @@ export default function SearchOverlay({ onClose, onAddParams }) {
     return (
         <div style={{
             position: 'fixed', inset: 0, zIndex: 1000,
-            background: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(10px)',
-            display: 'flex', flexDirection: 'column', padding: '2rem',
+            background: 'rgba(0,0,0,0.94)', backdropFilter: 'blur(12px)',
+            display: 'flex', flexDirection: 'column', padding: 'clamp(1rem, 3vw, 2rem)',
             overflowY: 'auto'
         }} className="animate-fade-in">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-                <h2 style={{ fontSize: '2rem' }}>Search Music</h2>
-                <button className="btn btn-ghost" onClick={onClose}><X size={24} /></button>
+            <style>{`
+                .search-item {
+                    display: flex;
+                    gap: 0.75rem;
+                    padding: 0.85rem;
+                    align-items: center;
+                    border-color: hsla(var(--border) / 0.3);
+                }
+                .search-thumb {
+                    width: 90px;
+                    height: 52px;
+                    object-fit: cover;
+                    border-radius: 6px;
+                    flex-shrink: 0;
+                }
+                @media (min-width: 600px) {
+                    .search-item {
+                        gap: 1rem;
+                        padding: 1rem;
+                    }
+                    .search-thumb {
+                        width: 120px;
+                        height: 67px;
+                        border-radius: 8px;
+                    }
+                }
+            `}</style>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                <h2 style={{ fontSize: 'clamp(1.35rem, 4vw, 2rem)' }}>Search Music</h2>
+                <button className="btn btn-ghost" onClick={onClose} style={{ padding: '0.5rem', minHeight: '36px' }}><X size={24} /></button>
             </div>
 
-            <form onSubmit={handleSearch} style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
+            <form onSubmit={handleSearch} style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem' }}>
                 <input
                     className="input"
-                    placeholder="Search for songs, artists..."
+                    placeholder="Search songs, artists..."
                     value={query}
                     onChange={e => setQuery(e.target.value)}
                     autoFocus
-                    style={{ fontSize: '1.25rem', padding: '1rem' }}
+                    style={{ fontSize: '1rem', padding: '0.75rem 1rem' }}
                 />
-                <button type="submit" className="btn btn-primary" style={{ padding: '0 2rem' }}>
-                    {loading ? '...' : <Search />}
+                <button type="submit" className="btn btn-primary" style={{ padding: '0 1.25rem', flexShrink: 0 }}>
+                    {loading ? '...' : <Search size={20} />}
                 </button>
             </form>
 
-            <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 {results.map(video => (
-                    <div key={video.id} className="glass-card" style={{
-                        display: 'flex', gap: '1rem', padding: '1rem', alignItems: 'center',
-                        borderColor: 'hsla(var(--border) / 0.3)'
-                    }}>
+                    <div key={video.id} className="glass-card search-item">
                         <img
                             src={video.thumbnail}
                             alt={video.title}
-                            style={{ width: '120px', height: '67px', objectFit: 'cover', borderRadius: '8px' }}
+                            className="search-thumb"
                         />
-                        <div style={{ flex: 1 }}>
-                            <h3 style={{ margin: '0 0 0.25rem 0', fontSize: '1.1rem' }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                            <h3 style={{ margin: '0 0 0.2rem 0', fontSize: '0.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                 {video.title.replace(/&quot;/g, '"').replace(/&#39;/g, "'")}
                             </h3>
-                            <p className="text-muted" style={{ fontSize: '0.9rem' }}>{video.channel}</p>
+                            <p className="text-muted" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{video.channel}</p>
                         </div>
                         <button
                             className="btn btn-primary"
+                            style={{ padding: '0.4rem 0.8rem', minHeight: '36px', fontSize: '0.85rem', flexShrink: 0 }}
                             onClick={() => {
                                 onAddParams(video)
-                                // Optional message "Added!"
                             }}
                         >
-                            <Plus size={18} /> Add
+                            <Plus size={16} /> Add
                         </button>
                     </div>
                 ))}

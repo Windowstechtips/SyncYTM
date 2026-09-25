@@ -38,6 +38,8 @@ export default function Auth() {
             alignItems: 'center',
             justifyContent: 'center',
             minHeight: '100vh',
+            minHeight: '100dvh',
+            padding: '1rem',
             background: 'radial-gradient(circle at top right, hsl(var(--primary) / 0.2), transparent 40%)'
         }}>
             <div className="glass-card animate-fade-in" style={{ width: '100%', maxWidth: '400px' }}>

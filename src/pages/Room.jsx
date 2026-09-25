@@ -43,6 +43,8 @@ export default function Room() {
     const [showDebug, setShowDebug] = useState(false)
     const [activeTab, setActiveTab] = useState('chat') // 'chat' | 'users'
     const [queueTab, setQueueTab] = useState('queue') // 'queue' | 'playlists'
+    const [mobileTab, setMobileTab] = useState('queue') // 'queue' | 'chat' | 'users'
+    const [unreadChatCount, setUnreadChatCount] = useState(0)
 
     // Playlist Import State
     const [playlistUrl, setPlaylistUrl] = useState('')
@@ -118,6 +120,7 @@ export default function Room() {
 
         if (data.type === 'chat') {
             setMessages(prev => [...prev, { id: Date.now(), user: senderName || senderEmail, text: data.payload }])
+            setUnreadChatCount(prev => prev + 1)
         }
 
         if (data.type === 'sync-state') {
@@ -939,13 +942,13 @@ export default function Room() {
         }
     }
 
-    if (loading) return <div className="container" style={{ paddingTop: '4rem' }}>Loading Room...</div>
+    if (loading) return <div className="container" style={{ paddingTop: '4rem', textAlign: 'center' }}>Loading Room...</div>
 
     if (!isAuthorized) {
         return (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
-                <div className="glass-card animate-fade-in" style={{ width: '100%', maxWidth: '400px', padding: '2rem' }}>
-                    <h2 style={{ marginBottom: '1.5rem', textAlign: 'center' }}>Private Room</h2>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', minHeight: '100dvh', padding: '1rem', boxSizing: 'border-box' }}>
+                <div className="glass-card animate-fade-in" style={{ width: '100%', maxWidth: '400px', padding: '1.5rem', boxSizing: 'border-box' }}>
+                    <h2 style={{ marginBottom: '1.5rem', textAlign: 'center', fontSize: '1.5rem' }}>Private Room</h2>
                     <form onSubmit={handlePasswordSubmit}>
                         <input className="input" type="password" placeholder="Enter Room Password" value={passwordInput} onChange={e => { setPasswordInput(e.target.value); setPasswordError('') }} autoFocus />
                         {passwordError && (
@@ -960,28 +963,45 @@ export default function Room() {
 
     return (
         <div style={{
-            minHeight: '100vh', /* Changed from height: 100vh */
+            minHeight: '100vh',
+            minHeight: '100dvh',
             width: '100%',
             background: 'radial-gradient(circle at top right, hsl(var(--primary) / 0.35), transparent 50%), radial-gradient(circle at bottom left, hsl(var(--secondary) / 0.1), transparent 50%)',
             overflowX: 'hidden',
-            display: 'flex', flexDirection: 'column' // Enable flex col implementation for footer sticking
-            /* Removed overflowY: hidden to allow global scroll */
+            display: 'flex', flexDirection: 'column'
         }}>
             <div className="container room-layout" style={{
-                padding: '1rem', // Reduced padding
-                flex: 1, // Push footer down
-                maxWidth: '100%', // Allow full width
+                padding: 'clamp(0.5rem, 2vw, 1.25rem)',
+                flex: 1,
+                maxWidth: '100%',
                 boxSizing: 'border-box'
             }}>
                 <style>{`
                 .room-layout {
                     display: grid;
-                    grid-template-columns: 1fr 320px; /* Reduced sidebar slightly */
-                    /* Removed grid-template-rows constraints */
-                    align-items: start; /* Align items to top */
-                    gap: 2rem;
+                    grid-template-columns: 1fr 340px;
+                    align-items: start;
+                    gap: 1.5rem;
                 }
-                .mobile-only { display: none; }
+                .room-mobile-tabs {
+                    display: none !important;
+                }
+                .room-queue-card {
+                    flex: 1;
+                    overflow: hidden;
+                    display: flex;
+                    flex-direction: column;
+                    min-height: 550px;
+                }
+                .room-right-col {
+                    display: flex;
+                    flex-direction: column;
+                    height: calc(100vh - 4rem);
+                    padding: 0;
+                    overflow: hidden;
+                    position: sticky;
+                    top: 2rem;
+                }
                 
                 @media (max-width: 900px) {
                     .room-layout {
@@ -990,23 +1010,66 @@ export default function Room() {
                         height: auto !important;
                         overflow-y: visible !important;
                         gap: 1rem;
+                        padding: 0.5rem 0.5rem 1.5rem 0.5rem !important;
+                    }
+                    .room-mobile-tabs {
+                        display: flex !important;
+                        gap: 0.4rem;
+                        background: hsla(var(--surface)/0.9);
+                        padding: 0.3rem;
+                        border-radius: var(--radius-md);
+                        border: 1px solid hsl(var(--border));
+                        width: 100%;
+                        box-sizing: border-box;
+                    }
+                    .room-mobile-tab-btn {
+                        flex: 1;
+                        padding: 0.5rem 0.25rem !important;
+                        min-height: 38px !important;
+                        font-size: 0.85rem !important;
+                        border-radius: var(--radius-sm) !important;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        gap: 0.35rem;
+                    }
+                    .tab-badge {
+                        background: hsl(var(--primary));
+                        color: white;
+                        font-size: 0.7rem;
+                        padding: 0.1rem 0.4rem;
+                        border-radius: var(--radius-full);
+                        line-height: 1;
+                    }
+                    .tab-badge-warning {
+                        background: #f59e0b;
+                        color: black;
+                        font-size: 0.7rem;
+                        font-weight: bold;
+                        padding: 0.1rem 0.4rem;
+                        border-radius: var(--radius-full);
+                        line-height: 1;
+                    }
+                    .room-queue-card {
+                        min-height: 380px !important;
                     }
                     .room-right-col {
-                        height: 500px !important;
-                        flex: none !important;
+                        height: 480px !important;
+                        position: static !important;
+                        top: auto !important;
                     }
-                    /* Mobile Header Optimizations */
+                    .mobile-hidden-section {
+                        display: none !important;
+                    }
                     .mobile-hide-text span {
                         display: none;
                     }
                     .btn-mobile-compact {
-                        padding: 0.5rem !important;
+                        padding: 0.4rem !important;
+                        min-height: 36px !important;
                     }
-                    h2 {
-                        font-size: 1.25rem !important;
-                    }
-                    .container {
-                        padding: 1rem !important;
+                    .room-header h2 {
+                        font-size: 1.2rem !important;
                     }
                 }
             `}</style>
@@ -1018,8 +1081,9 @@ export default function Room() {
                     <div style={{
                         position: 'fixed', top: '1.5rem', left: '50%', transform: 'translateX(-50%)',
                         zIndex: 2000, background: 'hsl(var(--primary))', color: 'white',
-                        padding: '0.75rem 1.5rem', borderRadius: '8px', fontWeight: '600',
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.3)', pointerEvents: 'none'
+                        padding: '0.75rem 1.25rem', borderRadius: '8px', fontWeight: '600',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.3)', pointerEvents: 'none',
+                        maxWidth: 'calc(100% - 2rem)', boxSizing: 'border-box', textAlign: 'center'
                     }}>
                         {songRequestNotif}
                     </div>
@@ -1027,44 +1091,46 @@ export default function Room() {
 
                 {/* Network Debug */}
                 {showDebug && (
-                    <div style={{ position: 'fixed', bottom: '1rem', right: '1rem', width: '300px', background: 'rgba(0,0,0,0.9)', padding: '1rem', borderRadius: '8px', zIndex: 9999, border: '1px solid #333', color: '#0f0', fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                        <button onClick={() => setShowDebug(false)} style={{ color: 'white' }}>Close</button>
-                        <pre>{JSON.stringify({ peers: peers.length, remote: hasRemote }, null, 2)}</pre>
+                    <div style={{ position: 'fixed', bottom: '1rem', right: '1rem', left: 'auto', maxWidth: 'calc(100% - 2rem)', width: '300px', background: 'rgba(0,0,0,0.92)', padding: '1rem', borderRadius: '8px', zIndex: 9999, border: '1px solid #333', color: '#0f0', fontFamily: 'monospace', fontSize: '0.8rem', boxSizing: 'border-box' }}>
+                        <button onClick={() => setShowDebug(false)} style={{ color: 'white', marginBottom: '0.5rem' }}>Close</button>
+                        <pre style={{ overflowX: 'auto' }}>{JSON.stringify({ peers: peers.length, remote: hasRemote }, null, 2)}</pre>
                     </div>
                 )}
 
                 {/* Left Column - Natural Height */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', minHeight: 0 }}>
-                    <header style={{ marginBottom: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ minWidth: 0 }}>
-                            <h2 style={{ fontSize: '1.5rem', marginBottom: '0.5rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{room?.name}</h2>
-                            <p className="text-muted" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }} onClick={() => setShowDebug(!showDebug)}>
-                                {peers.length > 0 ? <Wifi size={16} color="limegreen" /> : <WifiOff size={16} color="red" />}
-                                <span className="mobile-hide-text" title="Click for Network Details"><span>{peers.length} peers connected</span></span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: 0, minWidth: 0, flex: 1 }}>
+                    <header className="room-header" style={{ marginBottom: '0.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                            <h2 style={{ fontSize: 'clamp(1.15rem, 3.5vw, 1.5rem)', marginBottom: '0.2rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{room?.name}</h2>
+                            <p className="text-muted" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.85rem' }} onClick={() => setShowDebug(!showDebug)}>
+                                {peers.length > 0 ? <Wifi size={14} color="limegreen" /> : <WifiOff size={14} color="red" />}
+                                <span title="Click for Network Details">
+                                    <span>{peers.length} {peers.length === 1 ? 'peer' : 'peers'}</span>
+                                </span>
                             </p>
                         </div>
 
-                        <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
-                            <button className="btn btn-ghost btn-mobile-compact" style={{ padding: '0.5rem' }} onClick={() => broadcastData({ type: 'request-sync' })} title="Force Sync">
-                                <RefreshCw size={20} />
+                        <div style={{ display: 'flex', gap: '0.35rem', flexShrink: 0, alignItems: 'center' }}>
+                            <button className="btn btn-ghost btn-mobile-compact" style={{ padding: '0.4rem', minHeight: '36px' }} onClick={() => broadcastData({ type: 'request-sync' })} title="Force Sync">
+                                <RefreshCw size={18} />
                             </button>
-                            <button className="btn btn-ghost btn-mobile-compact" style={{ padding: '0.5rem' }} onClick={() => navigate('/')} title="Go Home">
-                                <Home size={20} />
-                            </button>
-
-                            <button className="btn btn-ghost btn-mobile-compact" style={{ padding: '0.5rem' }} onClick={() => setShowDebug(!showDebug)}>
-                                <Activity size={20} />
+                            <button className="btn btn-ghost btn-mobile-compact" style={{ padding: '0.4rem', minHeight: '36px' }} onClick={() => navigate('/')} title="Go Home">
+                                <Home size={18} />
                             </button>
 
-                            <button className={`btn ${isMusicMode ? 'btn-primary' : 'btn-ghost'} btn-mobile-compact mobile-hide-text`} onClick={() => {
+                            <button className="btn btn-ghost btn-mobile-compact" style={{ padding: '0.4rem', minHeight: '36px' }} onClick={() => setShowDebug(!showDebug)} title="Network Debug">
+                                <Activity size={18} />
+                            </button>
+
+                            <button className={`btn ${isMusicMode ? 'btn-primary' : 'btn-ghost'} btn-mobile-compact mobile-hide-text`} style={{ padding: '0.4rem 0.75rem', minHeight: '36px' }} onClick={() => {
                                 const newMode = !isMusicMode
                                 setIsMusicMode(newMode)
                                 localStorage.setItem('syncytm_music_mode', newMode.toString())
                             }}>
-                                <Music2 size={20} /> <span>Music Mode</span>
+                                <Music2 size={18} /> <span>Music Mode</span>
                             </button>
-                            <button className="btn btn-primary btn-mobile-compact mobile-hide-text" onClick={() => setShowSearch(true)}>
-                                {hasRemote ? <><Plus size={20} /> <span>Add Song</span></> : <><SearchIcon size={20} /> <span>Request Song</span></>}
+                            <button className="btn btn-primary btn-mobile-compact mobile-hide-text" style={{ padding: '0.4rem 0.75rem', minHeight: '36px' }} onClick={() => setShowSearch(true)}>
+                                {hasRemote ? <><Plus size={18} /> <span>Add</span></> : <><SearchIcon size={18} /> <span>Request</span></>}
                             </button>
                         </div>
                     </header>
@@ -1127,8 +1193,38 @@ export default function Room() {
                         )}
                     </div>
 
+                    {/* Mobile Segmented Tab Controller */}
+                    <div className="room-mobile-tabs">
+                        <button
+                            className={`btn room-mobile-tab-btn ${mobileTab === 'queue' ? 'btn-primary' : 'btn-ghost'}`}
+                            onClick={() => setMobileTab('queue')}
+                        >
+                            <ListMusic size={16} /> <span>Queue</span> {queue.length > 0 && <span className="tab-badge">{queue.length}</span>}
+                        </button>
+                        <button
+                            className={`btn room-mobile-tab-btn ${mobileTab === 'chat' ? 'btn-primary' : 'btn-ghost'}`}
+                            onClick={() => {
+                                setMobileTab('chat')
+                                setActiveTab('chat')
+                                setUnreadChatCount(0)
+                            }}
+                        >
+                            <MessageCircle size={16} /> <span>Chat</span> {unreadChatCount > 0 && <span className="tab-badge">{unreadChatCount}</span>}
+                        </button>
+                        <button
+                            className={`btn room-mobile-tab-btn ${mobileTab === 'users' ? 'btn-primary' : 'btn-ghost'}`}
+                            onClick={() => {
+                                setMobileTab('users')
+                                setActiveTab('users')
+                            }}
+                        >
+                            <Users size={16} /> <span>Users</span> {peers.length > 0 && <span className="tab-badge">{peers.length + 1}</span>}
+                            {isHost && songRequests.length > 0 && <span className="tab-badge-warning">{songRequests.length}</span>}
+                        </button>
+                    </div>
+
                     {/* Queue List with Tabs */}
-                    <div className="glass-card" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: '600px' }}>
+                    <div className={`glass-card room-queue-card ${mobileTab !== 'queue' ? 'mobile-hidden-section' : ''}`}>
                         {/* Queue Tabs Header */}
                         <div style={{ display: 'flex', borderBottom: '1px solid hsl(var(--border))' }}>
                             <button
@@ -1330,28 +1426,27 @@ export default function Room() {
                     </div>
                 </div>
 
-                {/* Right Column: Split Tabs - Sticky */}
-                <div className="glass-card room-right-col" style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    height: 'calc(100vh - 4rem)', /* Fixed viewport height */
-                    padding: '0',
-                    overflow: 'hidden',
-                    position: 'sticky', /* Locks position while scrolling */
-                    top: '2rem'
-                }}>
+                {/* Right Column: Split Tabs */}
+                <div className={`glass-card room-right-col ${mobileTab === 'queue' ? 'mobile-hidden-section' : ''}`}>
 
                     {/* Tabs Header */}
                     <div style={{ display: 'flex', borderBottom: '1px solid hsl(var(--border))' }}>
                         <button
-                            onClick={() => setActiveTab('chat')}
-                            style={{ flex: 1, padding: '1rem', background: activeTab === 'chat' ? 'hsl(var(--surface))' : 'transparent', border: 'none', color: activeTab === 'chat' ? 'white' : 'grey', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontWeight: 'bold' }}
+                            onClick={() => {
+                                setActiveTab('chat')
+                                setMobileTab('chat')
+                                setUnreadChatCount(0)
+                            }}
+                            style={{ flex: 1, padding: '0.85rem', background: activeTab === 'chat' ? 'hsl(var(--surface))' : 'transparent', border: 'none', color: activeTab === 'chat' ? 'white' : 'grey', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontWeight: 'bold' }}
                         >
-                            <MessageCircle size={18} /> Chat
+                            <MessageCircle size={18} /> Chat {unreadChatCount > 0 && <span className="tab-badge">{unreadChatCount}</span>}
                         </button>
                         <button
-                            onClick={() => setActiveTab('users')}
-                            style={{ flex: 1, padding: '1rem', background: activeTab === 'users' ? 'hsl(var(--surface))' : 'transparent', border: 'none', color: activeTab === 'users' ? 'white' : 'grey', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontWeight: 'bold' }}
+                            onClick={() => {
+                                setActiveTab('users')
+                                setMobileTab('users')
+                            }}
+                            style={{ flex: 1, padding: '0.85rem', background: activeTab === 'users' ? 'hsl(var(--surface))' : 'transparent', border: 'none', color: activeTab === 'users' ? 'white' : 'grey', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontWeight: 'bold' }}
                         >
                             <Users size={18} /> Users
                         </button>
@@ -1373,9 +1468,9 @@ export default function Room() {
                                         </div>
                                     ))}
                                 </div>
-                                <form onSubmit={handleSendMessage} style={{ padding: '1rem', borderTop: '1px solid hsl(var(--border))', display: 'flex', gap: '0.5rem' }}>
-                                    <input className="input" value={newMessage} onChange={e => setNewMessage(e.target.value)} placeholder="Type a message..." style={{ padding: '0.5rem' }} />
-                                    <button type="submit" className="btn btn-primary" style={{ padding: '0.5rem' }}><Send size={18} /></button>
+                                <form onSubmit={handleSendMessage} style={{ padding: '0.75rem 1rem', borderTop: '1px solid hsl(var(--border))', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                    <input className="input" value={newMessage} onChange={e => setNewMessage(e.target.value)} placeholder="Type a message..." style={{ padding: '0.5rem 0.75rem', minHeight: '38px', flex: 1 }} />
+                                    <button type="submit" className="btn btn-primary" style={{ padding: '0.5rem 1rem', minHeight: '38px', flexShrink: 0 }}><Send size={18} /></button>
                                 </form>
                             </>
                         )}

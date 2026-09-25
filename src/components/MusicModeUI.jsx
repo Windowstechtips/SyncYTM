@@ -54,7 +54,7 @@ export default function MusicModeUI({
             if (onSeek) onSeek(finalTime)
 
             setIsSeeking(false)
-            setSeekPosition(0) // Reset temp seek position (optional, or keep it)
+            setSeekPosition(0)
 
             window.removeEventListener('mousemove', onMouseMove)
             window.removeEventListener('mouseup', onMouseUp)
@@ -62,6 +62,40 @@ export default function MusicModeUI({
 
         window.addEventListener('mousemove', onMouseMove)
         window.addEventListener('mouseup', onMouseUp)
+    }
+
+    // Touch scrubber for mobile screens
+    const handleTouchStart = (e) => {
+        if (!duration) return
+        setIsSeeking(true)
+
+        const touch = e.touches[0]
+        updateSeekPosition(touch.clientX)
+
+        const onTouchMove = (moveEvent) => {
+            if (moveEvent.touches && moveEvent.touches[0]) {
+                updateSeekPosition(moveEvent.touches[0].clientX)
+            }
+        }
+
+        const onTouchEnd = (endEvent) => {
+            const clientX = endEvent.changedTouches && endEvent.changedTouches[0]
+                ? endEvent.changedTouches[0].clientX
+                : 0
+            const finalTime = calculateTime(clientX)
+            if (onSeek) onSeek(finalTime)
+
+            setIsSeeking(false)
+            setSeekPosition(0)
+
+            window.removeEventListener('touchmove', onTouchMove)
+            window.removeEventListener('touchend', onTouchEnd)
+            window.removeEventListener('touchcancel', onTouchEnd)
+        }
+
+        window.addEventListener('touchmove', onTouchMove, { passive: true })
+        window.addEventListener('touchend', onTouchEnd)
+        window.addEventListener('touchcancel', onTouchEnd)
     }
 
     const calculateTime = (clientX) => {
@@ -77,9 +111,6 @@ export default function MusicModeUI({
         setSeekPosition(time)
     }
 
-    // Remove old useEffect for mouseup since we handle it in handleMouseDown closure
-    // React.useEffect(() => { ... }, [isSeeking])
-
     const currentProgress = isSeeking ? seekPosition : progress
     const progressPercentage = duration > 0 ? (currentProgress / duration) * 100 : 0
 
@@ -88,20 +119,20 @@ export default function MusicModeUI({
             className={`glass-card ${className || ''}`}
             style={{
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                padding: '2rem', height: '100%', minHeight: '400px',
+                padding: 'clamp(1rem, 3vw, 2rem)', height: '100%', minHeight: '340px',
                 background: 'linear-gradient(to bottom, hsl(var(--surface-hover)), hsl(var(--surface)))',
                 border: '1px solid hsl(var(--border))',
                 position: 'relative'
             }}
         >
 
-            <div style={{ position: 'absolute', top: '1rem', right: '1rem' }}>
-                <button className="btn btn-ghost" onClick={onExit} title="Switch to Video">
+            <div style={{ position: 'absolute', top: '0.75rem', right: '0.75rem' }}>
+                <button className="btn btn-ghost" onClick={onExit} title="Switch to Video" style={{ padding: '0.4rem', minHeight: '36px' }}>
                     <Maximize2 size={20} />
                 </button>
             </div>
 
-            <div style={{ width: '100%', maxWidth: '300px', display: 'flex', flexDirection: 'column', gap: '1.5rem', alignItems: 'center' }}>
+            <div style={{ width: '100%', maxWidth: 'min(280px, 70vw)', display: 'flex', flexDirection: 'column', gap: '1.25rem', alignItems: 'center' }}>
                 {/* Album Art */}
                 <div style={{
                     width: '100%', aspectRatio: '1/1',
@@ -167,7 +198,7 @@ export default function MusicModeUI({
                             ref={progressBarRef}
                             onClick={handleProgressClick}
                             onMouseDown={handleMouseDown}
-                            // onMouseMove and onMouseUp handled by window listeners initiated by onMouseDown
+                            onTouchStart={handleTouchStart}
                             style={{
                                 width: '100%',
                                 height: '6px',
