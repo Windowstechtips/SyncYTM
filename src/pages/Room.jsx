@@ -6,6 +6,8 @@ import Player from '../components/Player'
 import SearchOverlay from '../components/SearchOverlay'
 import MusicModeUI from '../components/MusicModeUI'
 import Footer from '../components/Footer'
+import DiscordRPCModal, { DiscordIcon } from '../components/DiscordRPCModal'
+import { discordRPC } from '../services/discordRPC'
 import { getPlaylistItems } from '../services/youtube'
 
 import { useRealtimeSync } from '../hooks/useRealtimeSync'
@@ -57,8 +59,42 @@ export default function Room() {
     const [playlistError, setPlaylistError] = useState('')
     const [selectedSongs, setSelectedSongs] = useState(new Set())
 
+    // Discord Rich Presence State
+    const [showDiscordModal, setShowDiscordModal] = useState(false)
+    const [discordStatus, setDiscordStatus] = useState(() => discordRPC.getState())
 
-    // Remote Control State
+    useEffect(() => {
+        const unsubscribe = discordRPC.subscribe((rpcState) => {
+            setDiscordStatus(rpcState)
+        })
+        return unsubscribe
+    }, [])
+
+    // Update Discord Rich Presence activity whenever track, playback, progress or room changes
+    useEffect(() => {
+        if (!discordStatus.enabled || discordStatus.status !== 'connected') return
+
+        const roomUrl = `${window.location.origin}/room/${id}`
+
+        discordRPC.updateActivity({
+            title: currentVideo?.title || '',
+            artist: currentVideo?.channel || '',
+            thumbnail: currentVideo?.thumbnail || '',
+            progress: progress || 0,
+            duration: duration || 0,
+            isPlaying: !!isPlaying,
+            roomName: room?.name || 'SyncYTM Room',
+            roomUrl: roomUrl
+        })
+    }, [currentVideo, isPlaying, progress, duration, room?.name, id, discordStatus.enabled, discordStatus.status])
+
+    // Clear Discord Rich Presence activity on unmount
+    useEffect(() => {
+        return () => {
+            discordRPC.clearActivity()
+        }
+    }, [])
+
     const [remoteUsers, setRemoteUsers] = useState(new Set()) // Set of emails
     const [songRequests, setSongRequests] = useState([]) // Array of { video, user }
     const [songRequestNotif, setSongRequestNotif] = useState('') // Inline toast for guests
@@ -1375,6 +1411,7 @@ export default function Room() {
             `}</style>
 
                 {showSearch && <SearchOverlay onClose={() => setShowSearch(false)} onAddParams={handleVideoAction} isRequest={!hasRemote} />}
+                <DiscordRPCModal isOpen={showDiscordModal} onClose={() => setShowDiscordModal(false)} />
 
                 {/* Song request notification toast */}
                 {songRequestNotif && (
@@ -1453,6 +1490,34 @@ export default function Room() {
 
                             <button className="btn btn-ghost btn-mobile-compact" style={{ padding: '0.4rem', minHeight: '36px' }} onClick={() => setShowDebug(!showDebug)} title="Network Debug">
                                 <Activity size={18} />
+                            </button>
+
+                            <button
+                                className={`btn ${discordStatus.status === 'connected' ? 'btn-primary' : 'btn-ghost'} btn-mobile-compact`}
+                                style={{
+                                    padding: '0.4rem',
+                                    minHeight: '36px',
+                                    position: 'relative',
+                                    backgroundColor: discordStatus.status === 'connected' ? 'rgba(88, 101, 242, 0.25)' : undefined,
+                                    borderColor: discordStatus.status === 'connected' ? '#5865F2' : undefined,
+                                    color: discordStatus.status === 'connected' ? '#5865F2' : undefined
+                                }}
+                                onClick={() => setShowDiscordModal(true)}
+                                title={discordStatus.status === 'connected' ? `Discord RPC: Connected as ${discordStatus.user?.username || 'Active'}` : 'Discord Rich Presence'}
+                            >
+                                <DiscordIcon size={18} color={discordStatus.status === 'connected' ? '#5865F2' : 'currentColor'} />
+                                {discordStatus.status === 'connected' && (
+                                    <span style={{
+                                        position: 'absolute',
+                                        bottom: '3px',
+                                        right: '3px',
+                                        width: '8px',
+                                        height: '8px',
+                                        backgroundColor: '#23a55a',
+                                        borderRadius: '50%',
+                                        border: '1.5px solid #1e1f22'
+                                    }} />
+                                )}
                             </button>
 
                             <button className={`btn ${isMusicMode ? 'btn-primary' : 'btn-ghost'} btn-mobile-compact mobile-hide-text`} style={{ padding: '0.4rem 0.75rem', minHeight: '36px' }} onClick={() => {
