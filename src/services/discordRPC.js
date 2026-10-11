@@ -325,6 +325,7 @@ class DiscordRPCService {
             title,
             artist,
             thumbnail,
+            videoId,
             progress = 0,
             duration = 0,
             isPlaying = false,
@@ -349,13 +350,21 @@ class DiscordRPCService {
             ? Math.floor(now - (progress * 1000) + (duration * 1000)) 
             : undefined
 
+        // Build the most reliable thumbnail URL possible:
+        // 1. Construct directly from video ID (most reliable, well-known format)
+        // 2. Fall back to thumbnail field from API
+        // 3. Fall back to site favicon
+        const albumArt = videoId
+            ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+            : (thumbnail || 'https://syncytm.netlify.app/favicon.ico')
+
         const activity = {
             name: 'SyncYTM',
             type: 2, // 2 = Listening to
             details: trackTitle,
             state: artistOrRoom,
             assets: {
-                large_image: thumbnail || 'https://syncytm.site/favicon.ico',
+                large_image: albumArt,
                 large_text: trackTitle,
                 small_image: isPlaying 
                     ? 'https://cdn-icons-png.flaticon.com/512/0/375.png' 
@@ -372,11 +381,9 @@ class DiscordRPCService {
             }
         }
 
-        // Add application ID if configured or fallback
-        const appId = this.config.applicationId || DEFAULT_APP_ID
-        if (appId) {
-            activity.application_id = appId
-        }
+        // NOTE: application_id is intentionally omitted. When set, Discord restricts
+        // large_image to pre-registered assets for that app ID, blocking external URLs.
+        // Without it, Discord accepts arbitrary external HTTPS image URLs directly.
 
         // Add Join Room button if roomUrl provided
         if (roomUrl) {

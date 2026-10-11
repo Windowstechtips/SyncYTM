@@ -1,6 +1,17 @@
 const API_KEY = import.meta.env.VITE_YOUTUBE_API_KEY
 const BASE_URL = 'https://www.googleapis.com/youtube/v3'
 
+/**
+ * Decodes HTML entities from YouTube API responses (e.g. &#39; → ', &amp; → &).
+ * Uses a textarea element so the browser handles all entity types natively.
+ */
+const decodeHtmlEntities = (str) => {
+    if (!str) return str
+    const txt = document.createElement('textarea')
+    txt.innerHTML = str
+    return txt.value
+}
+
 export const searchYoutube = async (query) => {
     if (!query) return []
     if (!API_KEY) {
@@ -18,8 +29,8 @@ export const searchYoutube = async (query) => {
 
         return data.items.map(item => ({
             id: item.id.videoId,
-            title: item.snippet.title,
-            channel: item.snippet.channelTitle,
+            title: decodeHtmlEntities(item.snippet.title),
+            channel: decodeHtmlEntities(item.snippet.channelTitle),
             thumbnail: item.snippet.thumbnails.medium.url
         }))
     } catch (error) {
@@ -116,8 +127,8 @@ export const getPlaylistItems = async (playlistUrl) => {
             .filter(item => item.snippet.title !== 'Private video' && item.snippet.title !== 'Deleted video')
             .map(item => ({
                 id: item.snippet.resourceId.videoId,
-                title: item.snippet.title,
-                channel: item.snippet.videoOwnerChannelTitle || item.snippet.channelTitle,
+                title: decodeHtmlEntities(item.snippet.title),
+                channel: decodeHtmlEntities(item.snippet.videoOwnerChannelTitle || item.snippet.channelTitle),
                 thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url
             }))
 

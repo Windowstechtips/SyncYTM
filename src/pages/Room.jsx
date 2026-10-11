@@ -84,6 +84,7 @@ export default function Room() {
             title: currentVideo?.title || '',
             artist: currentVideo?.channel || '',
             thumbnail: currentVideo?.thumbnail || '',
+            videoId: currentVideo?.id || '',
             progress: progress || 0,
             duration: duration || 0,
             isPlaying: !!isPlaying,
