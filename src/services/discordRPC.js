@@ -12,8 +12,8 @@
 const GATEWAY_URL = 'wss://gateway.discord.gg/?v=9&encoding=json'
 const STORAGE_KEY = 'syncytm_discord_rpc_config'
 
-// Default fallback application ID if none provided (optional)
-const DEFAULT_APP_ID = '1210000000000000000'
+// Default fallback application ID if none provided (Registered YouTube Music RPC ID)
+const DEFAULT_APP_ID = '463151177696149514'
 
 class DiscordRPCService {
     constructor() {

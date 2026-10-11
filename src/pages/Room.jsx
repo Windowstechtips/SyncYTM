@@ -74,7 +74,11 @@ export default function Room() {
     useEffect(() => {
         if (!discordStatus.enabled || discordStatus.status !== 'connected') return
 
-        const roomUrl = `${window.location.origin}/room/${id}`
+        // Discord strictly requires https:// for Rich Presence button links
+        const baseUrl = window.location.protocol === 'https:'
+            ? window.location.origin
+            : 'https://syncytm.netlify.app'
+        const roomUrl = `${baseUrl}/room/${id}`
 
         discordRPC.updateActivity({
             title: currentVideo?.title || '',

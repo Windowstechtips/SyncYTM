@@ -74,7 +74,7 @@ export default function DiscordRPCModal({ isOpen, onClose }) {
         }
     }
 
-    const tokenSnippet = `(webpackChunkdiscord_app.push([[''],{},e=>{m=[];for(let c in e.c)m.push(e.c[c])}]),m).find(m=>m?.exports?.default?.getToken!==void 0).exports.default.getToken()`
+    const tokenSnippet = `(w=webpackChunkdiscord_app).push([[Symbol()],{},o=>{try{Object.values(o.c).some(e=>e.exports?.setToken&&(w.t=e.exports.getToken()))}catch{}}]),w.t`
 
     const copySnippet = () => {
         navigator.clipboard.writeText(tokenSnippet)
@@ -381,7 +381,10 @@ export default function DiscordRPCModal({ isOpen, onClose }) {
                                     </button>
                                 </div>
                                 <div style={{ fontSize: '0.78rem', color: '#949ba4' }}>
-                                    Press Enter in the Console, copy the token inside the quotes (without quotes), and paste it above.
+                                    Press Enter in the Console, copy the token without quotes, and paste it above.
+                                </div>
+                                <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: '#f0b232', opacity: 0.9 }}>
+                                    💡 <strong>Tip:</strong> Discord hides Rich Presence buttons when viewing your own profile popup. Friends and server members will see the <strong>Join Room</strong> button and can click it to join your room.
                                 </div>
                             </div>
                         )}
