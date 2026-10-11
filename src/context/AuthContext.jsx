@@ -12,13 +12,28 @@ export const AuthProvider = ({ children }) => {
     useEffect(() => {
         // Check active sessions and sets the user
         supabase.auth.getSession().then(({ data: { session } }) => {
-            setUser(session?.user ?? null)
+            if (session?.user) {
+                setUser(session.user)
+            } else {
+                // Restore guest session from localStorage if no real Supabase session
+                const savedGuest = localStorage.getItem('syncytm_guest')
+                if (savedGuest) {
+                    try { setUser(JSON.parse(savedGuest)) } catch { localStorage.removeItem('syncytm_guest') }
+                }
+            }
             setLoading(false)
         })
 
         // Listen for changes on auth state (logged in, signed out, etc.)
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            setUser(session?.user ?? null)
+            if (session?.user) {
+                // Real Supabase session takes over — clear any lingering guest data
+                localStorage.removeItem('syncytm_guest')
+                setUser(session.user)
+            } else if (_event === 'SIGNED_OUT') {
+                localStorage.removeItem('syncytm_guest')
+                setUser(null)
+            }
             setLoading(false)
         })
 
@@ -48,15 +63,42 @@ export const AuthProvider = ({ children }) => {
     }
 
     const signOut = async () => {
+        localStorage.removeItem('syncytm_guest')
         const { error } = await supabase.auth.signOut()
+        setUser(null)
         return { error }
+    }
+
+    /**
+     * Creates a temporary guest session stored only in localStorage.
+     * The guest user object mimics the Supabase user shape enough to pass
+     * existing `user` checks, but uses a random UUID that can never match
+     * a real room host_id in the database.
+     */
+    const continueAsGuest = (displayName) => {
+        const trimmed = displayName.trim()
+        if (!trimmed) return
+
+        const guestUser = {
+            id: `guest-${crypto.randomUUID()}`,
+            email: null,
+            isGuest: true,
+            user_metadata: {
+                username: trimmed,
+                avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(trimmed)}`,
+            },
+        }
+        localStorage.setItem('syncytm_guest', JSON.stringify(guestUser))
+        setUser(guestUser)
     }
 
     const value = {
         signUp,
         signIn,
         signOut,
+        continueAsGuest,
         user,
+        isGuest: !!user?.isGuest,
     }
 
     return (

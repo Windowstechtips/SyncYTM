@@ -9,7 +9,7 @@ import { useRoomCounts } from '../hooks/useGlobalPresence' // Import the hook
 import Footer from '../components/Footer'
 
 export default function Home() {
-    const { user, signOut } = useAuth()
+    const { user, signOut, isGuest } = useAuth()
     const navigate = useNavigate()
 
     const [activeRooms, setActiveRooms] = useState([])
@@ -43,16 +43,7 @@ export default function Home() {
     const fetchRooms = async () => {
         const { data } = await supabase.from('rooms').select('*').order('created_at', { ascending: false })
         if (data) {
-            // Filter Logic
-            // Active: Any room with realtime listener count > 0 (Previously checked db column)
-            // But strict "activeRooms" list might need to filter based on checks.
-            // Since `roomCounts` updates frequently, we might want to derive activeRooms in render or effect.
-            // For now, let's keep `activeRooms` state populated with ALL rooms, and filter in render.
-            // Wait, fetchRooms filters? No, selects *.
-
-            const mine = data.filter(r => r.host_id === user.id)
-
-            // We'll store ALL public rooms in 'activeRooms' state, and filter by count in the JSX
+            const mine = isGuest ? [] : data.filter(r => r.host_id === user.id)
             setActiveRooms(data)
             setMyRooms(mine)
         }
@@ -172,18 +163,32 @@ export default function Home() {
                     </h1>
                     <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', maxWidth: '220px' }}>
+                            {isGuest && (
+                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--primary))', background: 'hsl(var(--primary) / 0.1)', border: '1px solid hsl(var(--primary) / 0.3)', borderRadius: '999px', padding: '0.1rem 0.55rem', fontWeight: 600 }}>
+                                    Guest
+                                </span>
+                            )}
                             <span style={{ color: 'hsl(var(--text-muted))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.9rem' }}>
                                 {user.user_metadata?.username || user.email}
                             </span>
-                            <button className="btn btn-ghost" style={{ padding: '0.3rem', minHeight: '32px' }} onClick={() => { setNewUsername(user.user_metadata?.username || ''); setShowProfileModal(true) }} title="Edit username">
-                                <Edit2 size={14} />
-                            </button>
+                            {!isGuest && (
+                                <button className="btn btn-ghost" style={{ padding: '0.3rem', minHeight: '32px' }} onClick={() => { setNewUsername(user.user_metadata?.username || ''); setShowProfileModal(true) }} title="Edit username">
+                                    <Edit2 size={14} />
+                                </button>
+                            )}
                         </div>
-                        <button className="btn btn-ghost" style={{ padding: '0.4rem 0.8rem', minHeight: '36px', fontSize: '0.9rem' }} onClick={signOut}>Log Out</button>
+                        {isGuest ? (
+                            <button className="btn btn-primary" style={{ padding: '0.4rem 0.8rem', minHeight: '36px', fontSize: '0.9rem' }} onClick={signOut}>
+                                Sign In
+                            </button>
+                        ) : (
+                            <button className="btn btn-ghost" style={{ padding: '0.4rem 0.8rem', minHeight: '36px', fontSize: '0.9rem' }} onClick={signOut}>Log Out</button>
+                        )}
                     </div>
                 </header>
 
-                {/* My Rooms Section */}
+                {/* My Rooms Section — hidden for guests */}
+                {!isGuest && (
                 <div style={{ marginBottom: '3rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
                         <h2 style={{ fontSize: 'clamp(1.25rem, 3vw, 1.5rem)' }}>My Rooms</h2>
@@ -226,12 +231,32 @@ export default function Home() {
                         </div>
                     )}
                 </div>
+                )}
 
                 {/* Active Rooms Section */}
                 <div style={{ marginBottom: '2rem' }}>
+                    {isGuest && (
+                        <div style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            flexWrap: 'wrap', gap: '0.75rem',
+                            padding: '0.85rem 1.1rem',
+                            marginBottom: '1.5rem',
+                            background: 'hsl(var(--primary) / 0.08)',
+                            border: '1px solid hsl(var(--primary) / 0.25)',
+                            borderRadius: 'var(--radius-lg)',
+                            fontSize: '0.9rem'
+                        }}>
+                            <span style={{ color: 'hsl(var(--text-muted))' }}>
+                                You're browsing as a guest. <strong style={{ color: 'hsl(var(--foreground))' }}>Sign in</strong> to create your own rooms.
+                            </span>
+                            <button className="btn btn-primary" style={{ padding: '0.35rem 0.9rem', minHeight: '32px', fontSize: '0.85rem' }} onClick={signOut}>
+                                Sign In / Sign Up
+                            </button>
+                        </div>
+                    )}
                     <h2 style={{ fontSize: 'clamp(1.25rem, 3vw, 1.5rem)', marginBottom: '1.5rem' }}>Active Public Rooms</h2>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: '1.25rem' }}>
-                        {activeRooms.filter(r => r.host_id !== user.id && (roomCounts[r.id] > 0)).map(room => (
+                        {activeRooms.filter(r => (isGuest || r.host_id !== user.id) && (roomCounts[r.id] > 0)).map(room => (
                             <div key={room.id} className="glass-card" style={{ padding: '1.25rem', transition: 'all 0.2s', cursor: 'pointer' }} onClick={() => navigate(`/room/${room.id}`)}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
                                     <h3 style={{ fontSize: '1.2rem', fontWeight: '600', wordBreak: 'break-word', paddingRight: '0.5rem' }}>{room.name}</h3>
@@ -248,7 +273,7 @@ export default function Home() {
                             </div>
 
                         ))}
-                        {activeRooms.filter(r => r.host_id !== user.id && (roomCounts[r.id] > 0)).length === 0 && (
+                        {activeRooms.filter(r => (isGuest || r.host_id !== user.id) && (roomCounts[r.id] > 0)).length === 0 && (
                             <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '3rem', color: 'hsl(var(--text-muted))' }}>
                                 <p>No other active rooms right now.</p>
                             </div>
