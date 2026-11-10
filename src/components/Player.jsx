@@ -1,7 +1,7 @@
 import React from 'react'
 import ReactPlayer from 'react-player/youtube'
 
-const Player = ({ url, isPlaying, onProgress, onDuration, onBuffer, onBufferEnd, onEnded, onReady, onPlay, onPause, onSeek, playerRef }) => {
+const Player = ({ url, isPlaying, playbackRate = 1.0, onProgress, onDuration, onBuffer, onBufferEnd, onEnded, onReady, onPlay, onPause, onSeek, playerRef }) => {
     return (
         <div style={{
             position: 'relative',
@@ -15,6 +15,7 @@ const Player = ({ url, isPlaying, onProgress, onDuration, onBuffer, onBufferEnd,
                 ref={playerRef}
                 url={url}
                 playing={isPlaying}
+                playbackRate={playbackRate}
                 controls={true}
                 width='100%'
                 height='100%'

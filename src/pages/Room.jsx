@@ -32,6 +32,8 @@ export default function Room() {
     const [currentVideo, setCurrentVideo] = useState(null)
     const [progress, setProgress] = useState(0) // Current playback time in seconds
     const [duration, setDuration] = useState(0) // Total video duration in seconds
+    const [playbackRate, setPlaybackRate] = useState(1.0)
+    const playbackRateRef = useRef(1.0)
 
     // UI State
     const [showSearch, setShowSearch] = useState(false)
@@ -129,6 +131,19 @@ export default function Room() {
     // Track last known playback time to detect seeks via onProgress
     const lastProgressTimeRef = useRef(0)
 
+    // Precision Clock Sync (Cristian's Algorithm)
+    const clockOffsetRef = useRef(0)
+    const getHostTime = () => isHostRef.current ? Date.now() : (Date.now() + clockOffsetRef.current)
+
+    // Scheduled Playback with Pre-buffering
+    const scheduledPlayTimeoutRef = useRef(null)
+    const cancelScheduledPlay = () => {
+        if (scheduledPlayTimeoutRef.current) {
+            clearTimeout(scheduledPlayTimeoutRef.current)
+            scheduledPlayTimeoutRef.current = null
+        }
+    }
+
     const isHost = room?.host_id === user?.id
     const hasRemote = isHost || remoteUsers.has(user?.email)
 
@@ -162,7 +177,7 @@ export default function Room() {
 
         // --- Security / Authorization Gate ---
         // If I am the Host, I should only accept control commands from Authorized Remote Users
-        const controlTypes = ['play', 'pause', 'seek', 'play-video', 'queue-add', 'queue-add-batch', 'queue-remove', 'queue-remove-batch', 'queue-clear', 'sync-state']
+        const controlTypes = ['play', 'pause', 'seek', 'play-video', 'schedule-play', 'queue-add', 'queue-add-batch', 'queue-remove', 'queue-remove-batch', 'queue-clear', 'sync-state']
         if (isHostRef.current && controlTypes.includes(data.type)) {
             const isAuthorizedSender = remoteUsersRef.current.has(senderEmail) || (senderName && remoteUsersRef.current.has(senderName))
             if (!isAuthorizedSender) {
@@ -293,6 +308,28 @@ export default function Room() {
         // --------------------------
 
         // --- Request/Reply Sync Protocol ---
+        if (data.type === 'clock-ping') {
+            if (isHostRef.current && senderId) {
+                sendToPeerRef.current(senderId, {
+                    type: 'clock-pong',
+                    clientSentAt: data.clientSentAt,
+                    hostTimestamp: Date.now()
+                })
+            }
+        }
+
+        if (data.type === 'clock-pong') {
+            const now = Date.now()
+            const rtt = Math.max(0, now - data.clientSentAt)
+            const oneWayDelay = rtt / 2
+            const measuredOffset = (data.hostTimestamp + oneWayDelay) - now
+            if (clockOffsetRef.current === 0) {
+                clockOffsetRef.current = measuredOffset
+            } else {
+                clockOffsetRef.current = (clockOffsetRef.current * 0.7) + (measuredOffset * 0.3)
+            }
+            console.log(`[Clock Sync] RTT: ${rtt}ms, Clock Offset: ${clockOffsetRef.current.toFixed(1)}ms`)
+        }
         if (data.type === 'request-time') {
             if (playerRef.current && stateRef.current.isPlaying) {
                 const currentTime = playerRef.current.getCurrentTime()
@@ -311,27 +348,96 @@ export default function Room() {
             setTimeout(() => isBlockingUpdates.current = false, 500)
         }
 
-        // Periodic drift correction: host broadcasts time every 8s.
-        // Peers only seek if drift > 2s, to avoid disrupting normal playback.
+        // Periodic drift correction: host broadcasts time every 2s.
+        // Peers adjust playbackRate for micro-drift (<0.5s) or seek for large drift (>=0.5s).
         if (data.type === 'time-ping') {
             if (isHostRef.current) return // Host sent this
             if (senderId && room?.host_id && senderId !== room.host_id) return // Must be from host
             if (playerRef.current && stateRef.current.isPlaying) {
+                const nowHostTime = Date.now() + clockOffsetRef.current
+                const transitSec = data.hostSentAt ? Math.max(0, (nowHostTime - data.hostSentAt) / 1000) : 0
+                const targetHostTime = data.time + transitSec
                 const myTime = playerRef.current.getCurrentTime()
-                const transitDelay = data.hostSentAt ? Math.max(0, (Date.now() - data.hostSentAt) / 1000) : 0
-                const targetHostTime = data.time + transitDelay
-                const drift = Math.abs(myTime - targetHostTime)
-                if (drift > 2.0) {
-                    console.log(`Drift correction from host: ${drift.toFixed(2)}s (transit: ${(transitDelay * 1000).toFixed(0)}ms) → seeking to ${targetHostTime}`)
+                const drift = myTime - targetHostTime // positive: peer ahead; negative: peer behind
+                const absDrift = Math.abs(drift)
+
+                // 1. In sync (< 80ms)
+                if (absDrift < 0.08) {
+                    if (playbackRateRef.current !== 1.0) {
+                        playbackRateRef.current = 1.0
+                        setPlaybackRate(1.0)
+                        playerRef.current.getInternalPlayer()?.setPlaybackRate?.(1.0)
+                    }
+                    return
+                }
+
+                // 2. Micro-drift (80ms to 500ms): Pitch-neutral speed adjustment
+                if (drift < -0.08 && drift > -0.5) {
+                    // We are behind -> speed up slightly (1.05x)
+                    if (playbackRateRef.current !== 1.05) {
+                        console.log(`[Drift Correction] Behind by ${(absDrift * 1000).toFixed(0)}ms -> Speeding up to 1.05x`)
+                        playbackRateRef.current = 1.05
+                        setPlaybackRate(1.05)
+                        playerRef.current.getInternalPlayer()?.setPlaybackRate?.(1.05)
+                    }
+                } else if (drift > 0.08 && drift < 0.5) {
+                    // We are ahead -> slow down slightly (0.95x)
+                    if (playbackRateRef.current !== 0.95) {
+                        console.log(`[Drift Correction] Ahead by ${(absDrift * 1000).toFixed(0)}ms -> Slowing down to 0.95x`)
+                        playbackRateRef.current = 0.95
+                        setPlaybackRate(0.95)
+                        playerRef.current.getInternalPlayer()?.setPlaybackRate?.(0.95)
+                    }
+                } else if (absDrift >= 0.5) {
+                    // 3. Significant drift (> 500ms): Hard seek
+                    console.log(`[Drift Correction] Hard seek: drift ${drift.toFixed(2)}s -> seeking to ${targetHostTime.toFixed(2)}s`)
+                    if (playbackRateRef.current !== 1.0) {
+                        playbackRateRef.current = 1.0
+                        setPlaybackRate(1.0)
+                        playerRef.current.getInternalPlayer()?.setPlaybackRate?.(1.0)
+                    }
                     isBlockingUpdates.current = true
                     playerRef.current.seekTo(targetHostTime)
-                    setTimeout(() => isBlockingUpdates.current = false, 1500)
+                    setTimeout(() => {
+                        isBlockingUpdates.current = false
+                    }, 800)
                 }
             }
         }
         // -----------------------------------
 
+        if (data.type === 'schedule-play') {
+            cancelScheduledPlay()
+
+            const { targetWallClock, time = 0, video } = data
+            if (video && (!stateRef.current.currentVideo || stateRef.current.currentVideo.id !== video.id)) {
+                setCurrentVideo(video)
+                setUrl(`https://www.youtube.com/watch?v=${video.id}`)
+                setIsPlaying(false)
+            }
+
+            if (time > 0 && playerRef.current) {
+                playerRef.current.seekTo(time)
+                setProgress(time)
+            }
+
+            const nowHostTime = isHostRef.current ? Date.now() : (Date.now() + clockOffsetRef.current)
+            const delayMs = Math.max(0, targetWallClock - nowHostTime)
+
+            console.log(`[Schedule Play] Scheduled to start in ${delayMs}ms (target: ${targetWallClock}, pos: ${time}s)`)
+
+            scheduledPlayTimeoutRef.current = setTimeout(() => {
+                isBlockingUpdates.current = true
+                setIsPlaying(true)
+                setTimeout(() => {
+                    isBlockingUpdates.current = false
+                }, 1200)
+                scheduledPlayTimeoutRef.current = null
+            }, delayMs)
+        }
+
         if (data.type === 'play') {
+            cancelScheduledPlay()
             if (isBlockingUpdates.current) return
             isBlockingUpdates.current = true
             setTimeout(() => isBlockingUpdates.current = false, 1000)
@@ -339,7 +445,7 @@ export default function Room() {
             setIsPlaying(true)
             if (typeof data.time === 'number' && playerRef.current) {
                 const current = playerRef.current.getCurrentTime()
-                if (Math.abs(current - data.time) > 2) {
+                if (Math.abs(current - data.time) > 0.5) {
                     playerRef.current.seekTo(data.time)
                 }
             }
@@ -356,6 +462,12 @@ export default function Room() {
         }
 
         if (data.type === 'pause') {
+            cancelScheduledPlay()
+            if (playbackRateRef.current !== 1.0) {
+                playbackRateRef.current = 1.0
+                setPlaybackRate(1.0)
+                playerRef.current?.getInternalPlayer()?.setPlaybackRate?.(1.0)
+            }
             if (isBlockingUpdates.current) return
             isBlockingUpdates.current = true
             setTimeout(() => isBlockingUpdates.current = false, 1000)
@@ -825,33 +937,76 @@ export default function Room() {
 
     // --- Logic ---
 
+    const schedulePlay = ({ targetWallClock, time = 0, video = null, broadcast = true }) => {
+        cancelScheduledPlay()
+
+        const vid = video || currentVideo
+
+        if (broadcast && hasRemote) {
+            broadcastData({
+                type: 'schedule-play',
+                targetWallClock,
+                time,
+                video: vid
+            })
+        }
+
+        if (vid && (!currentVideo || currentVideo.id !== vid.id)) {
+            setCurrentVideo(vid)
+            setUrl(`https://www.youtube.com/watch?v=${vid.id}`)
+        }
+
+        if (time > 0 && playerRef.current) {
+            playerRef.current.seekTo(time)
+            setProgress(time)
+        }
+
+        const nowHostTime = isHost ? Date.now() : (Date.now() + clockOffsetRef.current)
+        const delayMs = Math.max(0, targetWallClock - nowHostTime)
+
+        // Pre-buffer while paused
+        setIsPlaying(false)
+
+        scheduledPlayTimeoutRef.current = setTimeout(() => {
+            isBlockingUpdates.current = true
+            setIsPlaying(true)
+            setTimeout(() => {
+                isBlockingUpdates.current = false
+            }, 1200)
+            scheduledPlayTimeoutRef.current = null
+        }, delayMs)
+
+        if (isHost) {
+            supabase.from('rooms').update({
+                current_video: vid,
+                is_playing: true,
+                progress: time,
+                last_updated_at: new Date()
+            }).eq('id', id).then()
+        }
+    }
+
     const playVideo = (video, broadcast = true) => {
         // Security check: Only allow if possessing remote OR if responding to an incoming broadcast (sync)
         if (broadcast && !hasRemote) return
 
+        cancelScheduledPlay()
+
         if (currentVideo?.id === video.id) {
-            // Optimization: If same video, just ensure playing (prevents flickering/reload)
-            setIsPlaying(true)
-            if (broadcast) broadcastData({ type: 'play-video', video })
+            handleTogglePlay()
             return
         }
 
-        setCurrentVideo(video)
-        setUrl(`https://www.youtube.com/watch?v=${video.id}`)
-        setIsPlaying(true)
-        if (broadcast) {
-            broadcastData({ type: 'play-video', video })
-        }
+        // 1200ms lead time allows peers to pre-buffer the new video stream
+        const leadTimeMs = 1200
+        const targetWallClock = getHostTime() + leadTimeMs
 
-        // PERSISTENCE (Host Only)
-        if (isHost) {
-            supabase.from('rooms').update({
-                current_video: video,
-                is_playing: true,
-                progress: 0,
-                last_updated_at: new Date()
-            }).eq('id', id).then()
-        }
+        schedulePlay({
+            targetWallClock,
+            time: 0,
+            video,
+            broadcast
+        })
     }
 
     const handleVideoAction = (video) => {
@@ -1066,9 +1221,8 @@ export default function Room() {
         isBufferingRef.current = false
     }
 
-    // Periodic drift correction — host broadcasts current time every 8s.
-    // Peers self-correct if drift > 2s (handled in onData 'time-ping' handler).
-    // This achieves near-realtime sync without interrupting normal playback.
+    // Periodic drift correction — host broadcasts current time every 2s.
+    // Peers self-correct via playback rate micro-adjustments or seek (handled in onData 'time-ping' handler).
     useEffect(() => {
         if (!isHost || !isAuthorized) return
 
@@ -1082,8 +1236,24 @@ export default function Room() {
                     hostSentAt: Date.now()
                 })
             }
-        }, 8000)
+        }, 2000)
 
+        return () => clearInterval(interval)
+    }, [isHost, isAuthorized])
+
+    // Periodic clock synchronization for guests (Cristian's algorithm)
+    useEffect(() => {
+        if (isHost || !isAuthorized) return
+
+        const pingClock = () => {
+            broadcastDataRef.current({
+                type: 'clock-ping',
+                clientSentAt: Date.now()
+            })
+        }
+
+        pingClock()
+        const interval = setInterval(pingClock, 15000)
         return () => clearInterval(interval)
     }, [isHost, isAuthorized])
 
@@ -1110,17 +1280,16 @@ export default function Room() {
 
         if (isPlaying) return
 
-        setIsPlaying(true)
-        const time = playerRef.current?.getCurrentTime() || 0
-        broadcastData({ type: 'play', time })
+        const currentTime = playerRef.current?.getCurrentTime() || 0
+        const leadTimeMs = 600
+        const targetWallClock = getHostTime() + leadTimeMs
 
-        if (isHost) {
-            supabase.from('rooms').update({
-                is_playing: true,
-                progress: time,
-                last_updated_at: new Date()
-            }).eq('id', id).then()
-        }
+        schedulePlay({
+            targetWallClock,
+            time: currentTime,
+            video: currentVideo,
+            broadcast: true
+        })
     }
 
     const handleTogglePlay = () => {
@@ -1129,8 +1298,15 @@ export default function Room() {
         if (isPlaying) {
             // User Explicit Pause - Bypass Debounce for UI responsiveness
             console.log('User Toggled Pause')
+            cancelScheduledPlay()
             if (pauseDebounceRef.current) clearTimeout(pauseDebounceRef.current)
             pauseDebounceRef.current = null
+
+            if (playbackRateRef.current !== 1.0) {
+                playbackRateRef.current = 1.0
+                setPlaybackRate(1.0)
+                playerRef.current?.getInternalPlayer()?.setPlaybackRate?.(1.0)
+            }
 
             setIsPlaying(false)
             broadcastData({ type: 'pause' })
@@ -1144,9 +1320,18 @@ export default function Room() {
                 }).eq('id', id).then()
             }
         } else {
-            // User Explicit Play
-            console.log('User Toggled Play')
-            onPlay()
+            // User Explicit Play (Scheduled)
+            console.log('User Toggled Play (Scheduled)')
+            const currentTime = playerRef.current?.getCurrentTime() || 0
+            const leadTimeMs = 600
+            const targetWallClock = getHostTime() + leadTimeMs
+
+            schedulePlay({
+                targetWallClock,
+                time: currentTime,
+                video: currentVideo,
+                broadcast: true
+            })
         }
     }
 
@@ -1179,6 +1364,13 @@ export default function Room() {
             }
 
             console.log('Broadcasting PAUSE (Debounced)')
+            cancelScheduledPlay()
+            if (playbackRateRef.current !== 1.0) {
+                playbackRateRef.current = 1.0
+                setPlaybackRate(1.0)
+                playerRef.current?.getInternalPlayer()?.setPlaybackRate?.(1.0)
+            }
+
             setIsPlaying(false)
             broadcastData({ type: 'pause' })
             pauseDebounceRef.current = null
@@ -1198,6 +1390,8 @@ export default function Room() {
         console.log('onSeek Triggered:', seconds, 'HasRemote:', hasRemote, 'Block:', isBlockingUpdates.current)
         if (isBlockingUpdates.current) return
         if (!hasRemote) return
+
+        cancelScheduledPlay()
 
         // Cancel any pending pause from the seek start
         if (pauseDebounceRef.current) {
@@ -1550,6 +1744,7 @@ export default function Room() {
                                 <Player
                                     url={url}
                                     isPlaying={isPlaying}
+                                    playbackRate={playbackRate}
                                     playerRef={playerRef}
                                     onProgress={onProgress}
                                     onDuration={onDuration}
