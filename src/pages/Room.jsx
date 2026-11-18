@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useState, useRef, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
@@ -128,43 +128,33 @@ export default function Room() {
 
     // Track last known playback time to detect seeks via onProgress
     const lastProgressTimeRef = useRef(0)
+    const initialMountDoneRef = useRef(false)
+    const fetchRoomSeekTimeoutRef = useRef(null)
+    const delayedHydrationTimeoutRef = useRef(null)
 
-    const isHost = room?.host_id === user?.id
-    const hasRemote = isHost || remoteUsers.has(user?.email)
+    const isRealHost = room?.host_id === user?.id
+    const isRealHostRef = useRef(isRealHost)
+    const isActingHostRef = useRef(false)
+    const isHostRef = useRef(isRealHost)
+    const activeHostIdRef = useRef(room?.host_id || null)
+    const wasActingHostRef = useRef(false)
 
     const queueRef = useRef(queue)
     const remoteUsersRef = useRef(remoteUsers)
-    const isHostRef = useRef(isHost)
     // Ref to hold the host's email for grant-remote sender validation
     const hostEmailRef = useRef(null)
     // Debounce timer ref for DB queue writes
     const dbQueueDebounceRef = useRef(null)
-
-    useEffect(() => {
-        stateRef.current = { url, isPlaying, queue, currentVideo }
-        queueRef.current = queue
-        remoteUsersRef.current = remoteUsers
-        isHostRef.current = isHost // Derived from user/room
-        // Derive host email from room data whenever room changes
-        if (room?.host_id) {
-            // host email is tracked via the peers list for the host user;
-            // we store own email when we ARE the host, otherwise we derive from
-            // the presence data. For validation purposes, we only need to know
-            // the host's user id (room.host_id), which is available in room state.
-            // We keep this ref updated for use inside onData closure.
-            hostEmailRef.current = room.host_email || null
-        }
-    }, [url, isPlaying, queue, currentVideo, remoteUsers, isHost, room])
 
     // Callback for incoming WebRTC/Realtime data
     const onData = React.useCallback((data, senderEmail, senderName, senderId) => {
         console.log('RX from', senderEmail, ':', data.type)
 
         // --- Security / Authorization Gate ---
-        // If I am the Host, I should only accept control commands from Authorized Remote Users
+        // If I am the Host, I should only accept control commands from Authorized Remote Users (or the main host returning)
         const controlTypes = ['play', 'pause', 'seek', 'play-video', 'queue-add', 'queue-add-batch', 'queue-remove', 'queue-remove-batch', 'queue-clear', 'sync-state']
         if (isHostRef.current && controlTypes.includes(data.type)) {
-            const isAuthorizedSender = remoteUsersRef.current.has(senderEmail) || (senderName && remoteUsersRef.current.has(senderName))
+            const isAuthorizedSender = remoteUsersRef.current.has(senderEmail) || (senderName && remoteUsersRef.current.has(senderName)) || (senderId && senderId === room?.host_id)
             if (!isAuthorizedSender) {
                 console.warn(`Host ignored unauthorized '${data.type}' from ${senderEmail} (${senderName})`)
                 return
@@ -226,7 +216,8 @@ export default function Room() {
             } else if (compensatedTime > 0) {
                 // Video is new/mounting: wait for player to mount, but compensate for the wait time
                 const receiveTime = performance.now()
-                setTimeout(() => {
+                if (delayedHydrationTimeoutRef.current) clearTimeout(delayedHydrationTimeoutRef.current)
+                delayedHydrationTimeoutRef.current = setTimeout(() => {
                     if (playerRef.current) {
                         const elapsed = (performance.now() - receiveTime) / 1000
                         const finalSeekTime = compensatedTime + (remoteIsPlaying ? elapsed : 0)
@@ -257,6 +248,60 @@ export default function Room() {
             }
         }
 
+        // --- Host Handoff Protocol (Temporary Host Transfer) ---
+        if (data.type === 'request-host-handoff') {
+            if (isActingHostRef.current || wasActingHostRef.current) {
+                console.log('HANDOFF: Returning host requested live state. Sending handoff...')
+                broadcastDataRef.current({
+                    type: 'host-handoff',
+                    target: room?.host_id,
+                    state: {
+                        ...stateRef.current,
+                        time: playerRef.current ? playerRef.current.getCurrentTime() : 0
+                    }
+                })
+            }
+        }
+
+        if (data.type === 'host-handoff') {
+            // Only the real room creator accepts host-handoff to reclaim control
+            if (!isRealHostRef.current) return
+
+            console.log('HOST HANDOFF: Reclaiming master host controls with live state from acting host:', data.state)
+            const { url: remoteUrl, isPlaying: remoteIsPlaying, queue: remoteQueue, currentVideo: remoteCurrentVideo, time } = data.state
+
+            isBlockingUpdates.current = true
+
+            if (remoteQueue) setQueue(remoteQueue)
+            if (remoteCurrentVideo) setCurrentVideo(remoteCurrentVideo)
+            if (remoteUrl) setUrl(remoteUrl)
+            setIsPlaying(remoteIsPlaying)
+
+            const targetTime = typeof time === 'number' ? time : 0
+            if (playerRef.current && targetTime > 0) {
+                playerRef.current.seekTo(targetTime)
+                setProgress(targetTime)
+            }
+
+            setTimeout(() => {
+                isBlockingUpdates.current = false
+            }, 1200)
+
+            // Persist the handed-off state to Supabase DB as the real host
+            if (remoteCurrentVideo) {
+                supabase.from('rooms').update({
+                    current_video: remoteCurrentVideo,
+                    queue: remoteQueue || queueRef.current,
+                    is_playing: remoteIsPlaying,
+                    progress: targetTime,
+                    last_updated_at: new Date()
+                }).eq('id', id).then(() => console.log('DB updated after host-handoff')).catch(() => {})
+            }
+
+            setSyncToast('Live room state reclaimed from temporary host')
+            setTimeout(() => setSyncToast(''), 3000)
+        }
+
         // --- Permissions Events ---
         if (data.type === 'request-song') {
             // Only Host receives/handles this (UI wise)
@@ -267,8 +312,9 @@ export default function Room() {
         }
 
         if (data.type === 'grant-remote') {
-            // SECURITY: Only accept grant-remote if sender matches the room's host_id
-            if (senderId && room?.host_id && senderId !== room.host_id) {
+            // SECURITY: Accept grant-remote if sender is main host or current acting host
+            const isAuthorizedHost = senderId === room?.host_id || senderId === activeHostIdRef.current
+            if (senderId && !isAuthorizedHost) {
                 console.warn(`Security: Rejected grant-remote from non-host sender ${senderEmail} (${senderId})`)
                 return
             }
@@ -283,8 +329,9 @@ export default function Room() {
         }
 
         if (data.type === 'sync-remotes') {
-            // SECURITY: Only accept sync-remotes if sender matches room's host_id
-            if (senderId && room?.host_id && senderId !== room.host_id) {
+            // SECURITY: Accept sync-remotes if sender is main host or current acting host
+            const isAuthorizedHost = senderId === room?.host_id || senderId === activeHostIdRef.current
+            if (senderId && !isAuthorizedHost) {
                 console.warn(`Security: Rejected sync-remotes from non-host: ${senderEmail}`)
                 return
             }
@@ -314,8 +361,9 @@ export default function Room() {
         // Periodic drift correction: host broadcasts time every 8s.
         // Peers only seek if drift > 2s, to avoid disrupting normal playback.
         if (data.type === 'time-ping') {
-            if (isHostRef.current) return // Host sent this
-            if (senderId && room?.host_id && senderId !== room.host_id) return // Must be from host
+            if (isHostRef.current) return // Acting or Real Host sent this
+            const isAuthorizedHost = senderId === room?.host_id || senderId === activeHostIdRef.current
+            if (senderId && !isAuthorizedHost) return // Must be from host or acting host
             if (playerRef.current && stateRef.current.isPlaying) {
                 const myTime = playerRef.current.getCurrentTime()
                 const transitDelay = data.hostSentAt ? Math.max(0, (Date.now() - data.hostSentAt) / 1000) : 0
@@ -405,18 +453,25 @@ export default function Room() {
             isBlockingUpdates.current = true
             setTimeout(() => isBlockingUpdates.current = false, 4000)
 
+            // Cancel any pending seeks
+            if (fetchRoomSeekTimeoutRef.current) clearTimeout(fetchRoomSeekTimeoutRef.current)
+            if (delayedHydrationTimeoutRef.current) clearTimeout(delayedHydrationTimeoutRef.current)
+
+            lastProgressTimeRef.current = 0
+            setProgress(0)
+
             setCurrentVideo(data.video)
             setUrl(`https://www.youtube.com/watch?v=${data.video.id}`)
             setIsPlaying(true)
 
             // Host persists current_video to DB when triggered by remote user
-            if (isHostRef.current) {
+            if (isRealHostRef.current) {
                 supabase.from('rooms').update({
                     current_video: data.video,
                     is_playing: true,
                     progress: 0,
                     last_updated_at: new Date()
-                }).eq('id', id).then()
+                }).eq('id', id).then().catch(() => {})
             }
         }
 
@@ -542,8 +597,20 @@ export default function Room() {
     const onPeerConnect = React.useCallback((peerId, email, sendToPeerFunc) => {
         console.log('New peer connected:', email)
 
-        // Only Host (or Remote) should send state to hydrate the new peer.
-        // Guests should NEVER send state on connect.
+        // If the returning main host just connected, and I was/am acting host:
+        if (peerId === room?.host_id && (isActingHostRef.current || wasActingHostRef.current)) {
+            console.log('HANDOFF: Main host returned! Handing off live playback state to:', email)
+            sendToPeerFunc(peerId, {
+                type: 'host-handoff',
+                state: {
+                    ...stateRef.current,
+                    time: playerRef.current ? playerRef.current.getCurrentTime() : 0
+                }
+            })
+            return
+        }
+
+        // Host (Real or Acting) hydrates new peers
         if (isHostRef.current) {
             console.log('SYNC: I am Host. Sending playback state to:', email)
             // Send Playback State (Unicast)
@@ -566,13 +633,121 @@ export default function Room() {
                 sendToPeerFunc(peerId, { type: 'request-sync' })
             }
         }
-    }, [])
+    }, [room?.host_id])
 
     // Need refs to hook methods to call them from inside callbacks without dependency loops
     const broadcastDataRef = useRef(() => { })
     const sendToPeerRef = useRef(() => { })
 
     const { peers, broadcastData, sendToPeer } = useRealtimeSync(isAuthorized ? id : null, user, onData, onPeerConnect)
+
+    // All members currently in the room (Local user + Peers)
+    const allConnectedMembers = useMemo(() => {
+        if (!user) return []
+        const me = {
+            peerId: user.id,
+            userEmail: user.email,
+            username: user.user_metadata?.username || user.email
+        }
+        return [me, ...peers]
+    }, [user, peers])
+
+    // Is the real room creator / main host currently connected?
+    const isMainHostConnected = useMemo(() => {
+        if (!room?.host_id) return true // Default true during initial loading
+        return allConnectedMembers.some(m => m.peerId === room.host_id)
+    }, [allConnectedMembers, room?.host_id])
+
+    // Temporary Handoff: Elect acting host deterministically when main host is away
+    const { actingHost, activeHostId } = useMemo(() => {
+        if (isMainHostConnected || !room?.host_id) {
+            return { actingHost: null, activeHostId: room?.host_id || null }
+        }
+
+        // Candidates: connected members other than the absent main host
+        const candidates = allConnectedMembers.filter(m => m.peerId !== room.host_id)
+        if (candidates.length === 0) {
+            return { actingHost: null, activeHostId: null }
+        }
+
+        // Priority 1: Peers who were granted Remote Control by the host
+        const remoteCandidates = candidates.filter(m => remoteUsers.has(m.userEmail))
+        const pool = remoteCandidates.length > 0 ? remoteCandidates : candidates
+
+        // Deterministic election: sort by peerId string
+        const sorted = pool.slice().sort((a, b) => a.peerId.localeCompare(b.peerId))
+        const chosen = sorted[0]
+
+        return {
+            actingHost: chosen,
+            activeHostId: chosen.peerId
+        }
+    }, [isMainHostConnected, room?.host_id, allConnectedMembers, remoteUsers])
+
+    const isActingHost = !!(actingHost && actingHost.peerId === user?.id)
+    const isHost = isRealHost || isActingHost
+    const hasRemote = isHost || remoteUsers.has(user?.email)
+
+    useEffect(() => {
+        stateRef.current = { url, isPlaying, queue, currentVideo }
+        queueRef.current = queue
+        remoteUsersRef.current = remoteUsers
+        isRealHostRef.current = isRealHost
+        isActingHostRef.current = isActingHost
+        isHostRef.current = isHost
+        activeHostIdRef.current = activeHostId
+        if (isActingHost) {
+            wasActingHostRef.current = true
+        }
+        if (room?.host_id) {
+            hostEmailRef.current = room.host_email || null
+        }
+    }, [url, isPlaying, queue, currentVideo, remoteUsers, isRealHost, isActingHost, isHost, activeHostId, room])
+
+    // Toast notifications for Host Handoff transitions
+    const prevHostConnectedRef = useRef(true)
+    const prevActingHostIdRef = useRef(null)
+
+    useEffect(() => {
+        if (!room?.host_id) return
+
+        // 1. Host left -> Handoff active
+        if (prevHostConnectedRef.current && !isMainHostConnected) {
+            if (isActingHost) {
+                setSyncToast('Host is away — You are now Temporary Host')
+            } else if (actingHost) {
+                const name = actingHost.username || actingHost.userEmail.split('@')[0]
+                setSyncToast(`Host is away — ${name} is Acting Host`)
+            }
+            setTimeout(() => setSyncToast(''), 4000)
+        }
+
+        // 2. Host returned -> Restored
+        if (!prevHostConnectedRef.current && isMainHostConnected) {
+            if (isRealHost) {
+                setSyncToast('Welcome back! Reclaiming host controls...')
+                // Request live state handoff from acting host/peers
+                broadcastDataRef.current({ type: 'request-host-handoff' })
+            } else {
+                setSyncToast('Main Host has returned! Host controls restored')
+            }
+            setTimeout(() => setSyncToast(''), 4000)
+        }
+
+        // 3. If acting host changed while main host is still away
+        if (!isMainHostConnected && prevActingHostIdRef.current && actingHost?.peerId !== prevActingHostIdRef.current) {
+            if (isActingHost) {
+                setSyncToast('Previous acting host left — You are now Temporary Host')
+            } else if (actingHost) {
+                const name = actingHost.username || actingHost.userEmail.split('@')[0]
+                setSyncToast(`Acting host updated: ${name}`)
+            }
+            setTimeout(() => setSyncToast(''), 4000)
+        }
+
+        prevHostConnectedRef.current = isMainHostConnected
+        prevActingHostIdRef.current = actingHost?.peerId || null
+    }, [isMainHostConnected, isActingHost, actingHost, isRealHost, room?.host_id])
 
     useEffect(() => {
         broadcastDataRef.current = broadcastData
@@ -619,29 +794,49 @@ export default function Room() {
 
             // Hydrate Playback State
             if (data.current_video) {
-                setCurrentVideo(data.current_video)
-                setUrl(`https://www.youtube.com/watch?v=${data.current_video.id}`)
-                setIsPlaying(data.is_playing)
+                // If we are already running playback locally and this is NOT initial mount,
+                // do not allow stale DB progress to override our live playback!
+                if (!initialMountDoneRef.current) {
+                    initialMountDoneRef.current = true
 
-                // Calculate drift if playing
-                if (data.is_playing && data.last_updated_at) {
-                    const lastUpdate = new Date(data.last_updated_at).getTime()
-                    const now = Date.now()
-                    const elapsed = (now - lastUpdate) / 1000
-                    if (elapsed >= 0 && elapsed < 3600) {
-                        const estimatedTime = (data.progress || 0) + elapsed
-                        setTimeout(() => {
-                            if (playerRef.current) playerRef.current.seekTo(estimatedTime)
-                        }, 1000)
+                    setCurrentVideo(data.current_video)
+                    setUrl(`https://www.youtube.com/watch?v=${data.current_video.id}`)
+                    setIsPlaying(data.is_playing)
+
+                    // Calculate drift only on cold initial mount
+                    if (data.is_playing && data.last_updated_at) {
+                        const lastUpdate = new Date(data.last_updated_at).getTime()
+                        const now = Date.now()
+                        const elapsed = (now - lastUpdate) / 1000
+                        if (elapsed >= 0 && elapsed < 3600) {
+                            const estimatedTime = (data.progress || 0) + elapsed
+                            if (fetchRoomSeekTimeoutRef.current) clearTimeout(fetchRoomSeekTimeoutRef.current)
+                            fetchRoomSeekTimeoutRef.current = setTimeout(() => {
+                                if (playerRef.current) playerRef.current.seekTo(estimatedTime)
+                            }, 1000)
+                        } else if (data.progress > 0) {
+                            if (fetchRoomSeekTimeoutRef.current) clearTimeout(fetchRoomSeekTimeoutRef.current)
+                            fetchRoomSeekTimeoutRef.current = setTimeout(() => {
+                                if (playerRef.current) playerRef.current.seekTo(data.progress)
+                            }, 1000)
+                        }
                     } else if (data.progress > 0) {
-                        setTimeout(() => {
+                        if (fetchRoomSeekTimeoutRef.current) clearTimeout(fetchRoomSeekTimeoutRef.current)
+                        fetchRoomSeekTimeoutRef.current = setTimeout(() => {
                             if (playerRef.current) playerRef.current.seekTo(data.progress)
                         }, 1000)
                     }
-                } else if (data.progress > 0) {
-                    setTimeout(() => {
-                        if (playerRef.current) playerRef.current.seekTo(data.progress)
-                    }, 1000)
+                } else {
+                    // Subsequent fetchRoom calls (e.g. fallback recovery):
+                    // Only update video if currently empty, and NEVER schedule rogue delayed seeks!
+                    if (!stateRef.current.currentVideo && data.current_video) {
+                        setCurrentVideo(data.current_video)
+                        setUrl(`https://www.youtube.com/watch?v=${data.current_video.id}`)
+                        setIsPlaying(data.is_playing)
+                        if (data.progress > 0 && playerRef.current) {
+                            playerRef.current.seekTo(data.progress)
+                        }
+                    }
                 }
             }
 
@@ -655,8 +850,8 @@ export default function Room() {
     // Unified, delay-compensated Force Sync handler with anti-spam protection
     const handleForceSync = async () => {
         const now = Date.now()
-        // Anti-spam protection: 2s cooldown & prevent re-entry while isSyncing
-        if (isSyncing || (now - lastSyncClickRef.current < 2000)) {
+        // Anti-spam protection: 2.5s cooldown & prevent re-entry while isSyncing
+        if (isSyncing || isSyncingRef.current || (now - lastSyncClickRef.current < 2500)) {
             console.log('Force Sync: Cooldown active or already syncing')
             return
         }
@@ -664,11 +859,9 @@ export default function Room() {
         setIsSyncing(true)
 
         if (isHost) {
-            console.log('HOST Force Sync: Re-syncing master state with DB and peers')
+            console.log('HOST Force Sync: Re-syncing master state with peers')
             try {
-                // 1. Refresh room record from DB
-                await fetchRoom()
-                // 2. Sample current master player time
+                // 1. Sample current master player time directly from live player
                 const currentTime = playerRef.current ? playerRef.current.getCurrentTime() : 0
                 // 3. Broadcast authoritative state to all peers with host timestamp
                 broadcastData({
@@ -686,14 +879,14 @@ export default function Room() {
                     _fromHost: true
                 })
                 // 4. Update Supabase progress
-                if (stateRef.current.currentVideo) {
+                if (isRealHost && stateRef.current.currentVideo) {
                     supabase.from('rooms').update({
                         is_playing: stateRef.current.isPlaying,
                         progress: currentTime,
                         last_updated_at: new Date()
-                    }).eq('id', id).then()
+                    }).eq('id', id).then().catch(() => {})
                 }
-                setSyncToast('Broadcast master sync to peers')
+                setSyncToast(isRealHost ? 'Broadcast master sync to peers' : 'Broadcast sync as acting host')
             } catch (err) {
                 console.error('Error during host sync:', err)
                 setSyncToast('Sync error')
@@ -836,6 +1029,18 @@ export default function Room() {
             return
         }
 
+        // Cancel any pending seeks
+        if (fetchRoomSeekTimeoutRef.current) clearTimeout(fetchRoomSeekTimeoutRef.current)
+        if (delayedHydrationTimeoutRef.current) clearTimeout(delayedHydrationTimeoutRef.current)
+
+        // Lock updates during song transition so onProgress doesn't interpret track change as seek
+        isBlockingUpdates.current = true
+        setTimeout(() => { isBlockingUpdates.current = false }, 2500)
+
+        // Reset progress tracking for new song
+        lastProgressTimeRef.current = 0
+        setProgress(0)
+
         setCurrentVideo(video)
         setUrl(`https://www.youtube.com/watch?v=${video.id}`)
         setIsPlaying(true)
@@ -844,13 +1049,13 @@ export default function Room() {
         }
 
         // PERSISTENCE (Host Only)
-        if (isHost) {
+        if (isRealHost) {
             supabase.from('rooms').update({
                 current_video: video,
                 is_playing: true,
                 progress: 0,
                 last_updated_at: new Date()
-            }).eq('id', id).then()
+            }).eq('id', id).then().catch(() => {})
         }
     }
 
@@ -1042,8 +1247,8 @@ export default function Room() {
         // This indicates a seek operation (user dragged the seekbar)
         const timeDiff = Math.abs(currentTime - lastTime)
 
-        // Only detect seeks if we have a valid last time and not currently blocked
-        if (lastTime > 0 && timeDiff > 2 && !isBlockingUpdates.current && !seekingRef.current) {
+        // Only detect seeks if we have a valid last time, not at track beginning, and not currently blocked
+        if (lastTime > 0 && currentTime >= 2 && timeDiff > 2 && !isBlockingUpdates.current && !seekingRef.current) {
             console.log('SEEK DETECTED via onProgress! Jump from', lastTime, 'to', currentTime, 'diff:', timeDiff)
             // Trigger the seek handler as if onSeek was called
             onSeek(currentTime)
@@ -1104,7 +1309,8 @@ export default function Room() {
         }
 
         if (!hasRemote) {
-            setIsPlaying(false)
+            // Guest unblocked local playback; sync to room
+            handleForceSync()
             return
         }
 
@@ -1246,7 +1452,7 @@ export default function Room() {
 
     if (!isAuthorized) {
         return (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', minHeight: '100dvh', padding: '1rem', boxSizing: 'border-box' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100dvh', padding: '1rem', boxSizing: 'border-box' }}>
                 <div className="glass-card animate-fade-in" style={{ width: '100%', maxWidth: '400px', padding: '1.5rem', boxSizing: 'border-box' }}>
                     <h2 style={{ marginBottom: '1.5rem', textAlign: 'center', fontSize: '1.5rem' }}>Private Room</h2>
                     <form onSubmit={handlePasswordSubmit}>
@@ -1263,7 +1469,6 @@ export default function Room() {
 
     return (
         <div style={{
-            minHeight: '100vh',
             minHeight: '100dvh',
             width: '100%',
             background: 'radial-gradient(circle at top right, hsl(var(--primary) / 0.35), transparent 50%), radial-gradient(circle at bottom left, hsl(var(--secondary) / 0.1), transparent 50%)',
@@ -1465,12 +1670,31 @@ export default function Room() {
                     <header className="room-header" style={{ marginBottom: '0.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', width: '100%', minWidth: 0, boxSizing: 'border-box' }}>
                         <div style={{ minWidth: 0, flex: 1 }}>
                             <h2 style={{ fontSize: 'clamp(1.15rem, 3.5vw, 1.5rem)', marginBottom: '0.2rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{room?.name}</h2>
-                            <p className="text-muted" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.85rem' }} onClick={() => setShowDebug(!showDebug)}>
-                                {peers.length > 0 ? <Wifi size={14} color="limegreen" /> : <WifiOff size={14} color="red" />}
-                                <span title="Click for Network Details">
-                                    <span>{peers.length} {peers.length === 1 ? 'peer' : 'peers'}</span>
-                                </span>
-                            </p>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                <p className="text-muted" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.85rem', margin: 0 }} onClick={() => setShowDebug(!showDebug)}>
+                                    {peers.length > 0 ? <Wifi size={14} color="limegreen" /> : <WifiOff size={14} color="red" />}
+                                    <span title="Click for Network Details">
+                                        <span>{peers.length} {peers.length === 1 ? 'peer' : 'peers'}</span>
+                                    </span>
+                                </p>
+                                {!isMainHostConnected && actingHost && (
+                                    <span style={{
+                                        fontSize: '0.72rem',
+                                        padding: '0.1rem 0.45rem',
+                                        background: 'hsla(var(--warning) / 0.15)',
+                                        color: 'hsl(var(--warning))',
+                                        borderRadius: '4px',
+                                        border: '1px solid hsla(var(--warning) / 0.3)',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '0.25rem',
+                                        fontWeight: 500
+                                    }} title="Main host is currently away. Host role temporarily assigned.">
+                                        <Shield size={12} />
+                                        Acting Host: {isActingHost ? 'You' : (actingHost.username || actingHost.userEmail.split('@')[0])}
+                                    </span>
+                                )}
+                            </div>
                         </div>
 
                         <div style={{ display: 'flex', gap: '0.35rem', flexShrink: 0, alignItems: 'center' }}>
@@ -1559,6 +1783,7 @@ export default function Room() {
                                     onBufferEnd={onBufferEnd}
                                     onSeek={onSeek}
                                     onEnded={onEnded}
+                                    onIframeClick={handleForceSync}
                                 />
                             ) : (
                                 <div style={{
@@ -2063,6 +2288,23 @@ export default function Room() {
 
                                 <div>
                                     <h4 style={{ marginBottom: '0.5rem', fontSize: '0.8rem', textTransform: 'uppercase', opacity: 0.7 }}>Connected Peers</h4>
+                                    {!isMainHostConnected && (
+                                        <div style={{
+                                            padding: '0.5rem 0.75rem',
+                                            background: 'hsla(var(--warning)/0.1)',
+                                            border: '1px solid hsla(var(--warning)/0.25)',
+                                            borderRadius: '6px',
+                                            fontSize: '0.75rem',
+                                            color: 'hsl(var(--warning))',
+                                            marginBottom: '0.65rem',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '0.4rem'
+                                        }}>
+                                            <Shield size={14} style={{ flexShrink: 0 }} />
+                                            <span>Main host is away. Host duties temporarily assigned to <strong>{isActingHost ? 'YOU' : (actingHost?.username || actingHost?.userEmail?.split('@')[0] || 'a peer')}</strong>.</span>
+                                        </div>
+                                    )}
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                                         {/* Show Me First */}
                                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem', background: 'hsla(var(--surface-hover)/0.5)', borderRadius: 'var(--radius-md)' }}>
@@ -2077,29 +2319,35 @@ export default function Room() {
                                                     borderRadius: '10px',
                                                     fontWeight: 'bold'
                                                 }}>YOU</span>
+                                                <span style={{ fontSize: '0.7rem', opacity: 0.6 }}>
+                                                    ({isRealHost ? 'Host' : (isActingHost ? 'Acting Host' : (hasRemote ? 'Remote Access' : 'Guest'))})
+                                                </span>
                                             </div>
-                                            {isHost ? (
-                                                <Shield size={16} color="hsl(var(--primary))" title="Host" />
+                                            {isRealHost ? (
+                                                <Shield size={16} color="hsl(var(--primary))" title="Room Owner / Host" />
+                                            ) : isActingHost ? (
+                                                <Shield size={16} color="hsl(var(--warning))" title="Acting Host (Temporary)" />
                                             ) : (
                                                 hasRemote && <Shield size={16} color="hsl(var(--secondary))" title="Remote Control Active" />
                                             )}
                                         </div>
 
                                         {peers.map(p => {
-                                            const isThisUserHost = p.peerId === room?.host_id
-                                            const isRemote = remoteUsers.has(p.userEmail) || isThisUserHost
+                                            const isThisUserMainHost = p.peerId === room?.host_id
+                                            const isThisUserActingHost = !isMainHostConnected && p.peerId === activeHostId
+                                            const isRemote = remoteUsers.has(p.userEmail) || isThisUserMainHost || isThisUserActingHost
                                             const displayName = p.username || p.userEmail
 
                                             return (
                                                 <div key={p.peerId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem', background: 'hsl(var(--surface))', borderRadius: '8px' }}>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0, flex: 1 }}>
-                                                        <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'hsl(var(--primary))', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 'bold', flexShrink: 0 }}>
+                                                        <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: isThisUserActingHost ? 'hsl(var(--warning))' : 'hsl(var(--primary))', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 'bold', flexShrink: 0 }}>
                                                             {displayName[0].toUpperCase()}
                                                         </div>
                                                         <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
                                                             <span style={{ fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayName}</span>
                                                             <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>
-                                                                {isThisUserHost ? 'Host' : (isRemote ? 'Remote Access' : 'Guest')}
+                                                                {isThisUserMainHost ? 'Host' : (isThisUserActingHost ? 'Acting Host' : (isRemote ? 'Remote Access' : 'Guest'))}
                                                             </span>
                                                         </div>
                                                     </div>
@@ -2108,14 +2356,20 @@ export default function Room() {
                                                     {isHost && (
                                                         <button
                                                             onClick={() => toggleRemote(p.userEmail)}
-                                                            className={`btn ${isRemote && !isThisUserHost ? 'btn-primary' : 'btn-ghost'}`}
+                                                            className={`btn ${isRemote && !isThisUserMainHost && !isThisUserActingHost ? 'btn-primary' : 'btn-ghost'}`}
                                                             style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }}
-                                                            disabled={isThisUserHost}
+                                                            disabled={isThisUserMainHost || isThisUserActingHost}
                                                         >
                                                             {isRemote ? 'Revoke' : 'Grant'}
                                                         </button>
                                                     )}
-                                                    {isRemote && !isHost && <Shield size={16} color="hsl(var(--primary))" />}
+                                                    {isThisUserMainHost ? (
+                                                        <Shield size={16} color="hsl(var(--primary))" title="Host" />
+                                                    ) : isThisUserActingHost ? (
+                                                        <Shield size={16} color="hsl(var(--warning))" title="Acting Host (Temporary)" />
+                                                    ) : (
+                                                        isRemote && !isHost && <Shield size={16} color="hsl(var(--primary))" />
+                                                    )}
                                                 </div>
                                             )
                                         })}

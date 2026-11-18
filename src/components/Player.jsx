@@ -1,16 +1,67 @@
-import React from 'react'
+import React, { useRef, useEffect } from 'react'
 import ReactPlayer from 'react-player/youtube'
 
-const Player = ({ url, isPlaying, onProgress, onDuration, onBuffer, onBufferEnd, onEnded, onReady, onPlay, onPause, onSeek, playerRef }) => {
+const Player = ({
+    url,
+    isPlaying,
+    onProgress,
+    onDuration,
+    onBuffer,
+    onBufferEnd,
+    onEnded,
+    onReady,
+    onPlay,
+    onPause,
+    onSeek,
+    playerRef,
+    onIframeClick
+}) => {
+    const containerRef = useRef(null)
+    const isOverPlayerRef = useRef(false)
+
+    useEffect(() => {
+        const handleBlur = () => {
+            // When the user clicks inside an iframe, the parent window loses focus (blur event).
+            // We verify that the user was either hovering/interacting with the player container,
+            // or the newly focused element is an iframe within our container.
+            const activeEl = document.activeElement
+            const isPlayerIframe = activeEl?.tagName === 'IFRAME' && containerRef.current?.contains(activeEl)
+            if (isOverPlayerRef.current || isPlayerIframe) {
+                console.log('[Player] Detected user click on YouTube iframe -> triggering sync')
+                if (onIframeClick) {
+                    onIframeClick()
+                }
+            }
+        }
+
+        window.addEventListener('blur', handleBlur)
+        return () => {
+            window.removeEventListener('blur', handleBlur)
+        }
+    }, [onIframeClick])
+
     return (
-        <div style={{
-            position: 'relative',
-            paddingTop: '56.25%', /* 16:9 Aspect Ratio */
-            borderRadius: 'var(--radius-lg)',
-            overflow: 'hidden',
-            background: 'black',
-            boxShadow: '0 10px 30px -5px rgba(0,0,0,0.5)'
-        }}>
+        <div
+            ref={containerRef}
+            onMouseEnter={() => { isOverPlayerRef.current = true }}
+            onMouseLeave={() => { isOverPlayerRef.current = false }}
+            onPointerEnter={() => { isOverPlayerRef.current = true }}
+            onPointerLeave={() => { isOverPlayerRef.current = false }}
+            onTouchStart={() => { isOverPlayerRef.current = true }}
+            onClick={() => {
+                if (onIframeClick) {
+                    onIframeClick()
+                }
+            }}
+            style={{
+                position: 'relative',
+                paddingTop: '56.25%', /* 16:9 Aspect Ratio */
+                borderRadius: 'var(--radius-lg)',
+                overflow: 'hidden',
+                background: 'black',
+                boxShadow: '0 10px 30px -5px rgba(0,0,0,0.5)'
+            }}
+        >
             <ReactPlayer
                 ref={playerRef}
                 url={url}
