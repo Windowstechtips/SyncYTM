@@ -2,7 +2,12 @@
 
 <br>
 
-# SYNCYTM
+<a href="https://syncytm.netlify.app">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <img src="assets/logo-light.svg" alt="SyncYTM" width="380">
+  </picture>
+</a>
 
 ### Watch and listen together, perfectly in sync.
 
