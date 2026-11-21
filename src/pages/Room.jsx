@@ -132,6 +132,12 @@ export default function Room() {
     const fetchRoomSeekTimeoutRef = useRef(null)
     const delayedHydrationTimeoutRef = useRef(null)
 
+    // Audio Startup & Autoplay Delay Compensator Anchor
+    // Tracks when sync data was received vs when local audio/video actually starts playing
+    const syncAnchorRef = useRef(null)
+    const durationRef = useRef(0)
+    durationRef.current = duration
+
     const isRealHost = room?.host_id === user?.id
     const isRealHostRef = useRef(isRealHost)
     const isActingHostRef = useRef(false)
@@ -145,6 +151,24 @@ export default function Room() {
     const hostEmailRef = useRef(null)
     // Debounce timer ref for DB queue writes
     const dbQueueDebounceRef = useRef(null)
+
+    // Arm the audio startup delay compensator with authoritative base time
+    const armSyncAnchor = (baseTime, isPlaying, source, url = null) => {
+        if (isHostRef.current) return
+        if (!isPlaying) {
+            syncAnchorRef.current = null
+            return
+        }
+        syncAnchorRef.current = {
+            baseTime: Math.max(0, typeof baseTime === 'number' ? baseTime : 0),
+            createdAt: performance.now(),
+            isPlaying: Boolean(isPlaying),
+            url: url || stateRef.current.url,
+            resolved: false,
+            source: source || 'unknown'
+        }
+        console.log(`[AudioStartupSync] Armed sync anchor from ${source}: baseTime=${baseTime.toFixed(2)}s`)
+    }
 
     // Callback for incoming WebRTC/Realtime data
     const onData = React.useCallback((data, senderEmail, senderName, senderId) => {
@@ -203,12 +227,21 @@ export default function Room() {
                 }
             }
 
+            // Arm the audio startup delay compensator with the latest authoritative host time
+            armSyncAnchor(compensatedTime, remoteIsPlaying, 'sync-state', remoteUrl)
+
             // If client is ALREADY playing the exact same video, seek immediately!
             const isSameVideo = (stateRef.current.url === remoteUrl || (stateRef.current.currentVideo?.id && stateRef.current.currentVideo?.id === remoteCurrentVideo?.id)) && playerRef.current
 
             if (isSameVideo && compensatedTime > 0) {
-                playerRef.current.seekTo(compensatedTime)
-                setProgress(compensatedTime)
+                const currentLocal = playerRef.current ? playerRef.current.getCurrentTime() : 0
+                const currentDrift = Math.abs(currentLocal - compensatedTime)
+                if (currentDrift >= 0.4) {
+                    playerRef.current.seekTo(compensatedTime)
+                    setProgress(compensatedTime)
+                } else {
+                    console.log(`[Sync Precision] Already in tight sync (${currentDrift.toFixed(2)}s drift). Skipping redundant seek.`)
+                }
                 setTimeout(() => {
                     isBlockingUpdates.current = false
                     console.log('HYDRATION UNLOCK (immediate seek)')
@@ -385,6 +418,9 @@ export default function Room() {
             setTimeout(() => isBlockingUpdates.current = false, 1000)
 
             setIsPlaying(true)
+            const targetPlayTime = typeof data.time === 'number' ? data.time : (playerRef.current?.getCurrentTime() || 0)
+            armSyncAnchor(targetPlayTime, true, 'play')
+
             if (typeof data.time === 'number' && playerRef.current) {
                 const current = playerRef.current.getCurrentTime()
                 if (Math.abs(current - data.time) > 2) {
@@ -409,6 +445,7 @@ export default function Room() {
             setTimeout(() => isBlockingUpdates.current = false, 1000)
 
             setIsPlaying(false)
+            armSyncAnchor(0, false, 'pause')
 
             // Host persists pause state to DB when triggered by remote user
             if (isHostRef.current) {
@@ -426,6 +463,7 @@ export default function Room() {
             isBlockingUpdates.current = true
             seekingRef.current = true
             isBufferingRef.current = true
+            armSyncAnchor(data.time, stateRef.current.isPlaying, 'seek')
 
             setTimeout(() => {
                 isBlockingUpdates.current = false
@@ -463,6 +501,7 @@ export default function Room() {
             setCurrentVideo(data.video)
             setUrl(`https://www.youtube.com/watch?v=${data.video.id}`)
             setIsPlaying(true)
+            armSyncAnchor(0, true, 'play-video', `https://www.youtube.com/watch?v=${data.video.id}`)
 
             // Host persists current_video to DB when triggered by remote user
             if (isRealHostRef.current) {
@@ -810,17 +849,22 @@ export default function Room() {
                         const elapsed = (now - lastUpdate) / 1000
                         if (elapsed >= 0 && elapsed < 3600) {
                             const estimatedTime = (data.progress || 0) + elapsed
+                            armSyncAnchor(estimatedTime, true, 'fetchRoom', `https://www.youtube.com/watch?v=${data.current_video.id}`)
                             if (fetchRoomSeekTimeoutRef.current) clearTimeout(fetchRoomSeekTimeoutRef.current)
                             fetchRoomSeekTimeoutRef.current = setTimeout(() => {
                                 if (playerRef.current) playerRef.current.seekTo(estimatedTime)
                             }, 1000)
                         } else if (data.progress > 0) {
+                            armSyncAnchor(data.progress, true, 'fetchRoom', `https://www.youtube.com/watch?v=${data.current_video.id}`)
                             if (fetchRoomSeekTimeoutRef.current) clearTimeout(fetchRoomSeekTimeoutRef.current)
                             fetchRoomSeekTimeoutRef.current = setTimeout(() => {
                                 if (playerRef.current) playerRef.current.seekTo(data.progress)
                             }, 1000)
                         }
                     } else if (data.progress > 0) {
+                        if (data.is_playing) {
+                            armSyncAnchor(data.progress, true, 'fetchRoom', `https://www.youtube.com/watch?v=${data.current_video.id}`)
+                        }
                         if (fetchRoomSeekTimeoutRef.current) clearTimeout(fetchRoomSeekTimeoutRef.current)
                         fetchRoomSeekTimeoutRef.current = setTimeout(() => {
                             if (playerRef.current) playerRef.current.seekTo(data.progress)
@@ -1243,6 +1287,12 @@ export default function Room() {
         // Update progress state for Music UI
         setProgress(currentTime)
 
+        // Safety fallback: if audio started playing but onPlay was bypassed/missed,
+        // catch it on the first active progress tick!
+        if (syncAnchorRef.current && !syncAnchorRef.current.resolved && syncAnchorRef.current.isPlaying && currentTime > 0) {
+            checkAndApplyAudioStartupDelay()
+        }
+
         // Detect if there was a significant time jump (> 2 seconds difference)
         // This indicates a seek operation (user dragged the seekbar)
         const timeDiff = Math.abs(currentTime - lastTime)
@@ -1260,6 +1310,7 @@ export default function Room() {
 
     const onDuration = (duration) => {
         setDuration(duration)
+        durationRef.current = duration
     }
 
     const onBuffer = () => {
@@ -1269,6 +1320,66 @@ export default function Room() {
     // Critical fix: reset buffering flag when buffer clears so future pause events work correctly
     const onBufferEnd = () => {
         isBufferingRef.current = false
+        // In case onBufferEnd fires without onPlay
+        if (syncAnchorRef.current && !syncAnchorRef.current.resolved && syncAnchorRef.current.isPlaying) {
+            checkAndApplyAudioStartupDelay()
+        }
+    }
+
+    // Audio Startup & Autoplay Delay Compensator
+    // Evaluates delay between receiving sync data and when audio actually begins playing,
+    // then performs a one-shot seek compensation so the listener is locked in real-time.
+    const checkAndApplyAudioStartupDelay = () => {
+        if (isHostRef.current) return
+
+        const anchor = syncAnchorRef.current
+        if (!anchor || anchor.resolved || !anchor.isPlaying) return
+
+        const now = performance.now()
+        const elapsedSeconds = (now - anchor.createdAt) / 1000
+
+        // If elapsed is > 1 hour (e.g. computer woke up after sleep), fall back to clean sync
+        if (elapsedSeconds > 3600) {
+            anchor.resolved = true
+            handleForceSync()
+            return
+        }
+
+        const calculatedTarget = anchor.baseTime + elapsedSeconds
+        const totalDuration = durationRef.current || (playerRef.current ? playerRef.current.getDuration() : 0) || 0
+        const targetRoomTime = (totalDuration > 0 && calculatedTarget >= totalDuration)
+            ? Math.max(0, totalDuration - 0.5)
+            : calculatedTarget
+
+        const currentLocalTime = playerRef.current ? playerRef.current.getCurrentTime() : 0
+        const drift = targetRoomTime - currentLocalTime
+
+        console.log(`[AudioStartupSync] Audio started! Source: ${anchor.source}, Elapsed: ${elapsedSeconds.toFixed(2)}s, Target: ${targetRoomTime.toFixed(2)}s, Local: ${currentLocalTime.toFixed(2)}s, Drift: ${drift.toFixed(2)}s`)
+
+        // Mark as resolved immediately to prevent recursive seek-buffer loops
+        anchor.resolved = true
+
+        // Only compensate if audible drift exceeds 400ms threshold
+        if (Math.abs(drift) > 0.4 && playerRef.current) {
+            console.log(`[AudioStartupSync] Applying delay compensation: seeking to ${targetRoomTime.toFixed(2)}s (delay: +${drift.toFixed(2)}s)`)
+            isBlockingUpdates.current = true
+            seekingRef.current = true
+            lastProgressTimeRef.current = targetRoomTime
+
+            playerRef.current.seekTo(targetRoomTime)
+            setProgress(targetRoomTime)
+
+            // If user unblocked after significant delay (> 1.0s), show feedback toast
+            if (Math.abs(drift) > 1.0) {
+                setSyncToast(`Synced (+${drift.toFixed(1)}s delay compensated)`)
+                setTimeout(() => setSyncToast(''), 2500)
+            }
+
+            setTimeout(() => {
+                isBlockingUpdates.current = false
+                seekingRef.current = false
+            }, 1200)
+        }
     }
 
     // Periodic drift correction — host broadcasts current time every 8s.
@@ -1302,6 +1413,11 @@ export default function Room() {
             clearTimeout(pauseDebounceRef.current)
             pauseDebounceRef.current = null
         }
+
+        // --- Audio Startup Delay & Autoplay Lag Compensator ---
+        // Calculates startup latency or autoplay wait duration and seeks to keep real-time sync
+        checkAndApplyAudioStartupDelay()
+        // -----------------------------------------------------
 
         if (isBlockingUpdates.current) {
             console.log('Identify spurious Play (Blocked)')
@@ -1337,6 +1453,11 @@ export default function Room() {
             console.log('User Toggled Pause')
             if (pauseDebounceRef.current) clearTimeout(pauseDebounceRef.current)
             pauseDebounceRef.current = null
+
+            // Invalidate pending startup anchor if explicitly paused
+            if (syncAnchorRef.current) {
+                syncAnchorRef.current.resolved = true
+            }
 
             setIsPlaying(false)
             broadcastData({ type: 'pause' })
@@ -1404,6 +1525,11 @@ export default function Room() {
         console.log('onSeek Triggered:', seconds, 'HasRemote:', hasRemote, 'Block:', isBlockingUpdates.current)
         if (isBlockingUpdates.current) return
         if (!hasRemote) return
+
+        // Invalidate any pending startup anchor if user explicitly seeks
+        if (syncAnchorRef.current) {
+            syncAnchorRef.current.resolved = true
+        }
 
         // Cancel any pending pause from the seek start
         if (pauseDebounceRef.current) {
