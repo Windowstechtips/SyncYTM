@@ -14,6 +14,15 @@ import { useRealtimeSync } from '../hooks/useRealtimeSync'
 import { useTrackRoomPresence } from '../hooks/useGlobalPresence'
 import { MessageCircle, Users, Send, Search as SearchIcon, ListMusic, Music2, Wifi, WifiOff, Activity, Play, Plus, Check, X, Shield, ShieldAlert, Home, Music, RefreshCw, Trash2, CheckSquare } from 'lucide-react'
 
+const ensureQueueItemId = (video) => {
+    if (!video) return video
+    if (video.queueItemId) return video
+    return {
+        ...video,
+        queueItemId: `${video.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    }
+}
+
 export default function Room() {
     const { id } = useParams()
     const { user } = useAuth()
@@ -51,6 +60,33 @@ export default function Room() {
     // Queue selection & deletion state
     const [selectedQueueItems, setSelectedQueueItems] = useState(new Set())
     const [isQueueSelectMode, setIsQueueSelectMode] = useState(false)
+    const currentQueueIndexRef = useRef(-1)
+
+    const getCurrentQueueIndex = (targetQueue = queue, targetVideo = currentVideo) => {
+        if (!targetVideo || !Array.isArray(targetQueue) || targetQueue.length === 0) return -1
+
+        // 1. Primary: Match by unique queueItemId
+        if (targetVideo.queueItemId) {
+            const idx = targetQueue.findIndex(v => v.queueItemId === targetVideo.queueItemId)
+            if (idx !== -1) return idx
+        }
+
+        // 2. Secondary fallback: If the song at the last known index still matches targetVideo.id, keep that index
+        const lastIdx = currentQueueIndexRef.current
+        if (lastIdx >= 0 && lastIdx < targetQueue.length && targetQueue[lastIdx].id === targetVideo.id) {
+            return lastIdx
+        }
+
+        // 3. Fallback: match by video id
+        return targetQueue.findIndex(v => v.id === targetVideo.id)
+    }
+
+    useEffect(() => {
+        const idx = getCurrentQueueIndex()
+        if (idx !== -1) {
+            currentQueueIndexRef.current = idx
+        }
+    }, [currentVideo, queue])
 
     // Playlist Import State
     const [playlistUrl, setPlaylistUrl] = useState('')
@@ -200,7 +236,19 @@ export default function Room() {
 
             isBlockingUpdates.current = true // START HYDRATION LOCK
 
-            if (remoteQueue) setQueue(remoteQueue)
+            if (remoteQueue) {
+                const seenIds = new Set()
+                const hydratedQueue = remoteQueue.map((v, idx) => {
+                    if (v.queueItemId && !seenIds.has(v.queueItemId)) {
+                        seenIds.add(v.queueItemId)
+                        return v
+                    }
+                    const newId = `${v.id}-${idx}-${Date.now()}`
+                    seenIds.add(newId)
+                    return { ...v, queueItemId: newId }
+                })
+                setQueue(hydratedQueue)
+            }
             if (remoteCurrentVideo) setCurrentVideo(remoteCurrentVideo)
             if (remoteUrl) setUrl(remoteUrl)
 
@@ -232,20 +280,42 @@ export default function Room() {
 
             // If client is ALREADY playing the exact same video, seek immediately!
             const isSameVideo = (stateRef.current.url === remoteUrl || (stateRef.current.currentVideo?.id && stateRef.current.currentVideo?.id === remoteCurrentVideo?.id)) && playerRef.current
+            const isSameQueueItem = Boolean(
+                stateRef.current.currentVideo?.queueItemId &&
+                remoteCurrentVideo?.queueItemId &&
+                stateRef.current.currentVideo.queueItemId === remoteCurrentVideo.queueItemId
+            )
 
-            if (isSameVideo && compensatedTime > 0) {
-                const currentLocal = playerRef.current ? playerRef.current.getCurrentTime() : 0
-                const currentDrift = Math.abs(currentLocal - compensatedTime)
-                if (currentDrift >= 0.4) {
-                    playerRef.current.seekTo(compensatedTime)
-                    setProgress(compensatedTime)
+            if (isSameVideo) {
+                if (!isSameQueueItem) {
+                    // Host transitioned to a duplicate song or different queue entry with the same video ID
+                    if (playerRef.current) {
+                        playerRef.current.seekTo(compensatedTime)
+                        setProgress(compensatedTime)
+                    }
+                    setTimeout(() => {
+                        isBlockingUpdates.current = false
+                        console.log('HYDRATION UNLOCK (duplicate song transition seek)')
+                    }, 1200)
+                } else if (compensatedTime > 0) {
+                    const currentLocal = playerRef.current ? playerRef.current.getCurrentTime() : 0
+                    const currentDrift = Math.abs(currentLocal - compensatedTime)
+                    if (currentDrift >= 0.4) {
+                        playerRef.current.seekTo(compensatedTime)
+                        setProgress(compensatedTime)
+                    } else {
+                        console.log(`[Sync Precision] Already in tight sync (${currentDrift.toFixed(2)}s drift). Skipping redundant seek.`)
+                    }
+                    setTimeout(() => {
+                        isBlockingUpdates.current = false
+                        console.log('HYDRATION UNLOCK (immediate seek)')
+                    }, 1200)
                 } else {
-                    console.log(`[Sync Precision] Already in tight sync (${currentDrift.toFixed(2)}s drift). Skipping redundant seek.`)
+                    setTimeout(() => {
+                        isBlockingUpdates.current = false
+                        console.log('HYDRATION UNLOCK (tight sync / 0s)')
+                    }, 1200)
                 }
-                setTimeout(() => {
-                    isBlockingUpdates.current = false
-                    console.log('HYDRATION UNLOCK (immediate seek)')
-                }, 1200)
             } else if (compensatedTime > 0) {
                 // Video is new/mounting: wait for player to mount, but compensate for the wait time
                 const receiveTime = performance.now()
@@ -305,7 +375,19 @@ export default function Room() {
 
             isBlockingUpdates.current = true
 
-            if (remoteQueue) setQueue(remoteQueue)
+            if (remoteQueue) {
+                const seenIds = new Set()
+                const hydratedQueue = remoteQueue.map((v, idx) => {
+                    if (v.queueItemId && !seenIds.has(v.queueItemId)) {
+                        seenIds.add(v.queueItemId)
+                        return v
+                    }
+                    const newId = `${v.id}-${idx}-${Date.now()}`
+                    seenIds.add(newId)
+                    return { ...v, queueItemId: newId }
+                })
+                setQueue(hydratedQueue)
+            }
             if (remoteCurrentVideo) setCurrentVideo(remoteCurrentVideo)
             if (remoteUrl) setUrl(remoteUrl)
             setIsPlaying(remoteIsPlaying)
@@ -498,10 +580,18 @@ export default function Room() {
             lastProgressTimeRef.current = 0
             setProgress(0)
 
+            const isSameVideoId = stateRef.current.currentVideo?.id === data.video?.id
+
             setCurrentVideo(data.video)
             setUrl(`https://www.youtube.com/watch?v=${data.video.id}`)
             setIsPlaying(true)
             armSyncAnchor(0, true, 'play-video', `https://www.youtube.com/watch?v=${data.video.id}`)
+
+            // If the YouTube video ID is the same, ReactPlayer won't reload the iframe.
+            // Seek to 0 explicitly to restart duplicate track playback!
+            if (isSameVideoId && playerRef.current) {
+                playerRef.current.seekTo(0)
+            }
 
             // Host persists current_video to DB when triggered by remote user
             if (isRealHostRef.current) {
@@ -517,11 +607,11 @@ export default function Room() {
         if (data.type === 'queue-add') {
             let updatedQueue = null
             setQueue(prev => {
-                // Deduplicate by queueItemId if present, else fall back to video id
-                const key = data.video.queueItemId || data.video.id
-                const alreadyExists = prev.some(v => (v.queueItemId || v.id) === key)
+                const videoToAdd = ensureQueueItemId(data.video)
+                const key = videoToAdd.queueItemId
+                const alreadyExists = prev.some(v => v.queueItemId === key)
                 if (alreadyExists) return prev
-                updatedQueue = [...prev, data.video]
+                updatedQueue = [...prev, videoToAdd]
                 return updatedQueue
             })
 
@@ -529,9 +619,9 @@ export default function Room() {
             if (isHostRef.current) {
                 setTimeout(() => {
                     const toPersist = updatedQueue || (
-                        queueRef.current.some(v => (v.queueItemId || v.id) === (data.video.queueItemId || data.video.id))
+                        queueRef.current.some(v => v.queueItemId === data.video.queueItemId)
                             ? queueRef.current
-                            : [...queueRef.current, data.video]
+                            : [...queueRef.current, ensureQueueItemId(data.video)]
                     )
                     supabase.from('rooms').update({ queue: toPersist }).eq('id', id)
                         .then(() => console.log('DB queue updated after remote queue-add'))
@@ -543,11 +633,15 @@ export default function Room() {
         if (data.type === 'queue-add-batch') {
             let updatedQueue = null
             setQueue(prev => {
-                const existingKeys = new Set(prev.map(v => v.queueItemId || v.id))
-                const newItems = (data.videos || []).filter(v => {
-                    const key = v.queueItemId || v.id
-                    return !existingKeys.has(key)
-                })
+                const existingKeys = new Set(prev.map(v => v.queueItemId).filter(Boolean))
+                const newItems = []
+                for (const rawVid of (data.videos || [])) {
+                    const videoToAdd = ensureQueueItemId(rawVid)
+                    if (!existingKeys.has(videoToAdd.queueItemId)) {
+                        existingKeys.add(videoToAdd.queueItemId)
+                        newItems.push(videoToAdd)
+                    }
+                }
                 if (newItems.length === 0) return prev
                 updatedQueue = [...prev, ...newItems]
                 return updatedQueue
@@ -569,7 +663,8 @@ export default function Room() {
             let updatedQueue = null
             setQueue(prev => {
                 updatedQueue = prev.filter((v, idx) => {
-                    const key = v.queueItemId || `${v.id}-${idx}`
+                    if (v.queueItemId) return !idsToRemove.has(v.queueItemId)
+                    const key = `${v.id}-${idx}`
                     return !idsToRemove.has(key) && !idsToRemove.has(v.id)
                 })
                 return updatedQueue
@@ -822,8 +917,19 @@ export default function Room() {
             navigate('/')
         } else {
             setRoom(data)
+            let hydratedQueue = []
             if (Array.isArray(data.queue)) {
-                setQueue(data.queue)
+                const seenIds = new Set()
+                hydratedQueue = data.queue.map((v, idx) => {
+                    if (v.queueItemId && !seenIds.has(v.queueItemId)) {
+                        seenIds.add(v.queueItemId)
+                        return v
+                    }
+                    const newId = `${v.id}-${idx}-${Date.now()}`
+                    seenIds.add(newId)
+                    return { ...v, queueItemId: newId }
+                })
+                setQueue(hydratedQueue)
             }
 
             // Hydrate persisted remote_users from DB
@@ -833,13 +939,21 @@ export default function Room() {
 
             // Hydrate Playback State
             if (data.current_video) {
+                let videoToSet = data.current_video
+                if (!videoToSet.queueItemId && hydratedQueue.length > 0) {
+                    const matched = hydratedQueue.find(v => v.id === videoToSet.id)
+                    if (matched?.queueItemId) {
+                        videoToSet = { ...videoToSet, queueItemId: matched.queueItemId }
+                    }
+                }
+
                 // If we are already running playback locally and this is NOT initial mount,
                 // do not allow stale DB progress to override our live playback!
                 if (!initialMountDoneRef.current) {
                     initialMountDoneRef.current = true
 
-                    setCurrentVideo(data.current_video)
-                    setUrl(`https://www.youtube.com/watch?v=${data.current_video.id}`)
+                    setCurrentVideo(videoToSet)
+                    setUrl(`https://www.youtube.com/watch?v=${videoToSet.id}`)
                     setIsPlaying(data.is_playing)
 
                     // Calculate drift only on cold initial mount
@@ -874,8 +988,8 @@ export default function Room() {
                     // Subsequent fetchRoom calls (e.g. fallback recovery):
                     // Only update video if currently empty, and NEVER schedule rogue delayed seeks!
                     if (!stateRef.current.currentVideo && data.current_video) {
-                        setCurrentVideo(data.current_video)
-                        setUrl(`https://www.youtube.com/watch?v=${data.current_video.id}`)
+                        setCurrentVideo(videoToSet)
+                        setUrl(`https://www.youtube.com/watch?v=${videoToSet.id}`)
                         setIsPlaying(data.is_playing)
                         if (data.progress > 0 && playerRef.current) {
                             playerRef.current.seekTo(data.progress)
@@ -970,8 +1084,17 @@ export default function Room() {
 
     // Helper to update Queue State everywhere (Local + DB + Peers)
     const handleQueueUpdate = (newQueue, shouldBroadcast = true) => {
-        // Assign unique queueItemIds to any new items that don't have one yet
-        const queueWithIds = newQueue.map(v => v.queueItemId ? v : { ...v, queueItemId: `${v.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}` })
+        // Assign unique queueItemIds to any new items that don't have one yet, or if duplicated
+        const seenIds = new Set()
+        const queueWithIds = newQueue.map((v, idx) => {
+            if (v.queueItemId && !seenIds.has(v.queueItemId)) {
+                seenIds.add(v.queueItemId)
+                return v
+            }
+            const uniqueItem = ensureQueueItemId(v.queueItemId ? { ...v, queueItemId: null } : v)
+            seenIds.add(uniqueItem.queueItemId)
+            return uniqueItem
+        })
         setQueue(queueWithIds)
 
         // Broadcast change to peers
@@ -1005,7 +1128,8 @@ export default function Room() {
         if (keysSet.size === 0) return
 
         const newQueue = queue.filter((v, idx) => {
-            const key = v.queueItemId || `${v.id}-${idx}`
+            if (v.queueItemId) return !keysSet.has(v.queueItemId)
+            const key = `${v.id}-${idx}`
             return !keysSet.has(key) && !keysSet.has(v.id)
         })
 
@@ -1065,11 +1189,23 @@ export default function Room() {
     const playVideo = (video, broadcast = true) => {
         // Security check: Only allow if possessing remote OR if responding to an incoming broadcast (sync)
         if (broadcast && !hasRemote) return
+        if (!video) return
 
-        if (currentVideo?.id === video.id) {
-            // Optimization: If same video, just ensure playing (prevents flickering/reload)
-            setIsPlaying(true)
-            if (broadcast) broadcastData({ type: 'play-video', video })
+        const videoToPlay = ensureQueueItemId(video)
+
+        // Check if we are already playing this exact queue item
+        const isSameQueueEntry = currentVideo && (
+            (currentVideo.queueItemId && videoToPlay.queueItemId)
+                ? currentVideo.queueItemId === videoToPlay.queueItemId
+                : currentVideo.id === videoToPlay.id
+        )
+
+        if (isSameQueueEntry && isPlaying) {
+            // Optimization: If same exact queue entry, restart from 0 if clicked again
+            if (playerRef.current) playerRef.current.seekTo(0)
+            setProgress(0)
+            lastProgressTimeRef.current = 0
+            if (broadcast) broadcastData({ type: 'seek', time: 0 })
             return
         }
 
@@ -1085,17 +1221,26 @@ export default function Room() {
         lastProgressTimeRef.current = 0
         setProgress(0)
 
-        setCurrentVideo(video)
-        setUrl(`https://www.youtube.com/watch?v=${video.id}`)
+        const isSameVideoId = currentVideo?.id === videoToPlay.id
+
+        setCurrentVideo(videoToPlay)
+        setUrl(`https://www.youtube.com/watch?v=${videoToPlay.id}`)
         setIsPlaying(true)
+
+        // If the YouTube video ID is the same, ReactPlayer won't reload the iframe or restart the track.
+        // We MUST seek to 0 explicitly to restart playback for duplicate tracks!
+        if (isSameVideoId && playerRef.current) {
+            playerRef.current.seekTo(0)
+        }
+
         if (broadcast) {
-            broadcastData({ type: 'play-video', video })
+            broadcastData({ type: 'play-video', video: videoToPlay })
         }
 
         // PERSISTENCE (Host Only)
         if (isRealHost) {
             supabase.from('rooms').update({
-                current_video: video,
+                current_video: videoToPlay,
                 is_playing: true,
                 progress: 0,
                 last_updated_at: new Date()
@@ -1106,11 +1251,12 @@ export default function Room() {
     const handleVideoAction = (video) => {
         if (hasRemote) {
             // If remote: Add to queue
-            const newQueue = [...queue, video]
+            const videoWithId = ensureQueueItemId(video)
+            const newQueue = [...queue, videoWithId]
             handleQueueUpdate(newQueue, true)
 
             if (!currentVideo) {
-                playVideo(video) // Auto-play if idle
+                playVideo(videoWithId) // Auto-play if idle
             }
             setShowSearch(false)
         } else {
@@ -1126,11 +1272,18 @@ export default function Room() {
         if (!hasRemote) return
         if (!currentVideo || queue.length === 0) return
 
-        const currentIndex = queue.findIndex(v => v.id === currentVideo.id)
-        if (currentIndex < queue.length - 1) {
-            playVideo(queue[currentIndex + 1])
+        const currentIndex = getCurrentQueueIndex()
+        if (currentIndex !== -1) {
+            if (currentIndex < queue.length - 1) {
+                playVideo(queue[currentIndex + 1])
+            } else {
+                setIsPlaying(false)
+            }
         } else {
-            setIsPlaying(false)
+            const fallbackIndex = (currentQueueIndexRef.current >= 0 && currentQueueIndexRef.current < queue.length)
+                ? currentQueueIndexRef.current
+                : 0
+            playVideo(queue[fallbackIndex])
         }
     }
 
@@ -1138,7 +1291,7 @@ export default function Room() {
         if (!hasRemote) return
         if (!currentVideo || queue.length === 0) return
 
-        const currentIndex = queue.findIndex(v => v.id === currentVideo.id)
+        const currentIndex = getCurrentQueueIndex()
         if (currentIndex > 0) {
             playVideo(queue[currentIndex - 1])
         } else {
@@ -1168,11 +1321,12 @@ export default function Room() {
     }
 
     const approveRequest = (req) => {
-        const newQueue = [...queue, req.video]
+        const videoWithId = ensureQueueItemId(req.video)
+        const newQueue = [...queue, videoWithId]
         handleQueueUpdate(newQueue, true)
 
         setSongRequests(prev => prev.filter(r => r.id !== req.id)) // Remove from requests
-        if (!currentVideo) playVideo(req.video)
+        if (!currentVideo) playVideo(videoWithId)
     }
 
     const denyRequest = (reqId) => {
@@ -1251,7 +1405,9 @@ export default function Room() {
     const handleImportSelected = () => {
         if (!playlistData || selectedSongs.size === 0) return
 
-        const videosToImport = playlistData.videos.filter(v => selectedSongs.has(v.id))
+        const videosToImport = playlistData.videos
+            .filter(v => selectedSongs.has(v.id))
+            .map(v => ensureQueueItemId(v))
         const newQueue = [...queue, ...videosToImport]
         handleQueueUpdate(newQueue, true)
 
@@ -1268,15 +1424,16 @@ export default function Room() {
     }
 
     const handlePlaylistImport = (videos) => {
-        const newQueue = [...queue, ...videos]
+        const videosWithIds = (videos || []).map(v => ensureQueueItemId(v))
+        const newQueue = [...queue, ...videosWithIds]
         handleQueueUpdate(newQueue, true)
 
         // Switch to queue tab to show imported songs
         setQueueTab('queue')
 
         // Optionally play first song if nothing is playing
-        if (!currentVideo && videos.length > 0) {
-            playVideo(videos[0])
+        if (!currentVideo && videosWithIds.length > 0) {
+            playVideo(videosWithIds[0])
         }
     }
 
@@ -2107,8 +2264,9 @@ export default function Room() {
 
                                     {/* Queue Items */}
                                     {queue.map((video, i) => {
-                                        const isCurrent = currentVideo && currentVideo.id === video.id
                                         const itemKey = video.queueItemId || `${video.id}-${i}`
+                                        const activeIndex = getCurrentQueueIndex()
+                                        const isCurrent = activeIndex === i
                                         const isSelected = selectedQueueItems.has(itemKey)
 
                                         return (
@@ -2271,11 +2429,11 @@ export default function Room() {
 
                                             {/* Song List with Checkboxes */}
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: 'none', paddingRight: '0.5rem' }}>
-                                                {playlistData.videos.map((video) => {
+                                                {playlistData.videos.map((video, idx) => {
                                                     const isSelected = selectedSongs.has(video.id)
                                                     return (
                                                         <div
-                                                            key={video.id}
+                                                            key={`${video.id}-${idx}`}
                                                             onClick={() => toggleSongSelection(video.id)}
                                                             style={{
                                                                 display: 'flex',
