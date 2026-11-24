@@ -49,6 +49,9 @@ create policy "Authenticated users can create rooms." on rooms
 create policy "Host can update their room." on rooms
   for update using (auth.uid() = host_id);
 
+create policy "Host can delete their room." on rooms
+  for delete using (auth.uid() = host_id);
+
 -- Enable Realtime
 begin;
   drop publication if exists supabase_realtime;

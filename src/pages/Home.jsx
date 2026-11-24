@@ -111,8 +111,13 @@ export default function Home() {
     const confirmDelete = async (roomId) => {
         if (window.confirm('Are you sure you want to delete this room?')) {
             const { error } = await supabase.from('rooms').delete().eq('id', roomId)
-            if (error) alert(error.message)
-            else fetchRooms()
+            if (error) {
+                alert('Could not delete room: ' + error.message)
+            } else {
+                setMyRooms(prev => prev.filter(r => r.id !== roomId))
+                setActiveRooms(prev => prev.filter(r => r.id !== roomId))
+                fetchRooms()
+            }
         }
     }
 
